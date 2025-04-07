@@ -1,6 +1,7 @@
 module goauthentik.io
 
 go 1.24.0
+
 require (
 	beryju.io/ldap v0.1.0
 	github.com/coreos/go-oidc/v3 v3.13.0
@@ -28,7 +29,7 @@ require (
 	github.com/wwt/guac v1.3.2
 	goauthentik.io/api/v3 v3.2025023.2
 	golang.org/x/exp v0.0.0-20230210204819-062eb4c674ab
-	golang.org/x/oauth2 v0.28.0
+	golang.org/x/oauth2 v0.29.0
 	golang.org/x/sync v0.12.0
 	gopkg.in/yaml.v2 v2.4.0
 	layeh.com/radius v0.0.0-20210819152912-ad72663a72ab
