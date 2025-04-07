@@ -1,26 +1,28 @@
 """Enterprise API Views"""
 
+from dataclasses import asdict
 from datetime import timedelta
 
 from django.utils.timezone import now
 from django.utils.translation import gettext as _
 from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import OpenApiParameter, extend_schema, inline_serializer
+from drf_spectacular.utils import extend_schema, inline_serializer
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
 from rest_framework.fields import CharField, IntegerField
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
+from rest_framework.serializers import ModelSerializer
 from rest_framework.viewsets import ModelViewSet
 
 from authentik.core.api.used_by import UsedByMixin
-from authentik.core.api.utils import ModelSerializer, PassiveSerializer
+from authentik.core.api.utils import PassiveSerializer
 from authentik.core.models import User, UserTypes
 from authentik.enterprise.license import LicenseKey, LicenseSummarySerializer
 from authentik.enterprise.models import License
 from authentik.rbac.decorators import permission_required
-from authentik.tenants.utils import get_unique_identifier
+from authentik.root.install_id import get_install_id
 
 
 class EnterpriseRequiredMixin:
@@ -29,7 +31,7 @@ class EnterpriseRequiredMixin:
 
     def validate(self, attrs: dict) -> dict:
         """Check that a valid license exists"""
-        if not LicenseKey.cached_summary().status.is_valid:
+        if not LicenseKey.cached_summary().has_license:
             raise ValidationError(_("Enterprise is required to create/update this object."))
         return super().validate(attrs)
 
@@ -86,11 +88,11 @@ class LicenseViewSet(UsedByMixin, ModelViewSet):
         },
     )
     @action(detail=False, methods=["GET"])
-    def install_id(self, request: Request) -> Response:
+    def get_install_id(self, request: Request) -> Response:
         """Get install_id"""
         return Response(
             data={
-                "install_id": get_unique_identifier(),
+                "install_id": get_install_id(),
             }
         )
 
@@ -99,22 +101,12 @@ class LicenseViewSet(UsedByMixin, ModelViewSet):
         responses={
             200: LicenseSummarySerializer(),
         },
-        parameters=[
-            OpenApiParameter(
-                name="cached",
-                location=OpenApiParameter.QUERY,
-                type=OpenApiTypes.BOOL,
-                default=True,
-            )
-        ],
     )
     @action(detail=False, methods=["GET"], permission_classes=[IsAuthenticated])
     def summary(self, request: Request) -> Response:
         """Get the total license status"""
-        summary = LicenseKey.cached_summary()
-        if request.query_params.get("cached", "true").lower() == "false":
-            summary = LicenseKey.get_total().summary()
-        response = LicenseSummarySerializer(instance=summary)
+        response = LicenseSummarySerializer(data=asdict(LicenseKey.cached_summary()))
+        response.is_valid(raise_exception=True)
         return Response(response.data)
 
     @permission_required(None, ["authentik_enterprise.view_license"])
@@ -137,7 +129,7 @@ class LicenseViewSet(UsedByMixin, ModelViewSet):
         forecast_for_months = 12
         response = LicenseForecastSerializer(
             data={
-                "internal_users": LicenseKey.get_internal_user_count(),
+                "internal_users": LicenseKey.get_default_user_count(),
                 "external_users": LicenseKey.get_external_user_count(),
                 "forecasted_internal_users": (internal_in_last_month * forecast_for_months),
                 "forecasted_external_users": (external_in_last_month * forecast_for_months),

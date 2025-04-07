@@ -23,7 +23,10 @@ func (db *DirectBinder) Bind(username string, req *bind.Request) (ldap.LDAPResul
 	fe.Params.Add("goauthentik.io/outpost/ldap", "true")
 
 	fe.Answers[flow.StageIdentification] = username
-	fe.SetSecrets(req.BindPW, db.si.GetMFASupport())
+	fe.Answers[flow.StagePassword] = req.BindPW
+	if db.si.GetMFASupport() {
+		fe.CheckPasswordInlineMFA()
+	}
 
 	passed, err := fe.Execute()
 	flags := flags.UserFlags{
@@ -58,10 +61,8 @@ func (db *DirectBinder) Bind(username string, req *bind.Request) (ldap.LDAPResul
 		return ldap.LDAPResultInvalidCredentials, nil
 	}
 
-	access, _, err := fe.ApiClient().OutpostsApi.OutpostsLdapAccessCheck(
-		req.Context(), db.si.GetProviderID(),
-	).AppSlug(db.si.GetAppSlug()).Execute()
-	if !access.Access.Passing {
+	access, err := fe.CheckApplicationAccess(db.si.GetAppSlug())
+	if !access {
 		req.Log().Info("Access denied for user")
 		metrics.RequestsRejected.With(prometheus.Labels{
 			"outpost_name": db.si.GetOutpostName(),
@@ -95,11 +96,12 @@ func (db *DirectBinder) Bind(username string, req *bind.Request) (ldap.LDAPResul
 		req.Log().WithError(err).Warning("failed to get user info")
 		return ldap.LDAPResultOperationsError, nil
 	}
+	cs := db.SearchAccessCheck(userInfo.User)
 	flags.UserPk = userInfo.User.Pk
-	flags.CanSearch = access.GetHasSearchPermission()
+	flags.CanSearch = cs != nil
 	db.si.SetFlags(req.BindDN, &flags)
 	if flags.CanSearch {
-		req.Log().Debug("Allowed access to search")
+		req.Log().WithField("group", cs).Info("Allowed access to search")
 	}
 	uisp.Finish()
 	return ldap.LDAPResultSuccess, nil

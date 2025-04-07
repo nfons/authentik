@@ -1,7 +1,8 @@
+import { getRelativeTime } from "@goauthentik/app/common/utils";
 import { DEFAULT_CONFIG } from "@goauthentik/common/api/config";
 import { intentToLabel } from "@goauthentik/common/labels";
+import { uiConfig } from "@goauthentik/common/ui/config";
 import { me } from "@goauthentik/common/users";
-import { getRelativeTime } from "@goauthentik/common/utils";
 import "@goauthentik/components/ak-status-label";
 import "@goauthentik/elements/buttons/Dropdown";
 import "@goauthentik/elements/buttons/ModalButton";
@@ -34,9 +35,12 @@ export class UserTokenList extends Table<Token> {
     @property()
     order = "expires";
 
-    async apiEndpoint(): Promise<PaginatedResponse<Token>> {
+    async apiEndpoint(page: number): Promise<PaginatedResponse<Token>> {
         return new CoreApi(DEFAULT_CONFIG).coreTokensList({
-            ...(await this.defaultEndpointConfig()),
+            ordering: this.order,
+            page: page,
+            pageSize: (await uiConfig()).pagination.perPage,
+            search: this.search || "",
             managed: "",
             // The user might have access to other tokens that aren't for their user
             // but only show tokens for their user here
@@ -151,16 +155,12 @@ export class UserTokenList extends Table<Token> {
 
     row(item: Token): TemplateResult[] {
         return [
-            html`<span class="pf-m-monospace">${item.identifier}</span>`,
+            html`${item.identifier}`,
             html`
                 <ak-forms-modal>
                     <span slot="submit"> ${msg("Update")} </span>
                     <span slot="header"> ${msg("Update Token")} </span>
-                    <ak-user-token-form
-                        intent=${item.intent ?? IntentEnum.Api}
-                        slot="form"
-                        .instancePk=${item.identifier}
-                    >
+                    <ak-user-token-form slot="form" .instancePk=${item.identifier}>
                     </ak-user-token-form>
                     <button slot="trigger" class="pf-c-button pf-m-plain">
                         <pf-tooltip position="top" content=${msg("Edit")}>
@@ -178,11 +178,5 @@ export class UserTokenList extends Table<Token> {
                 </ak-token-copy-button>
             `,
         ];
-    }
-}
-
-declare global {
-    interface HTMLElementTagNameMap {
-        "ak-user-token-list": UserTokenList;
     }
 }

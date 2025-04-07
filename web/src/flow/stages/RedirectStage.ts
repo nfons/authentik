@@ -43,17 +43,8 @@ export class RedirectStage extends BaseStage<RedirectChallenge, FlowChallengeRes
 
     firstUpdated(): void {
         if (this.promptUser) {
-            document.addEventListener("keydown", (ev) => {
-                if (ev.key === "Enter") {
-                    this.redirect();
-                }
-            });
             return;
         }
-        this.redirect();
-    }
-
-    redirect() {
         console.debug(
             "authentik/stages/redirect: redirecting to url from server",
             this.challenge.to,
@@ -75,7 +66,7 @@ export class RedirectStage extends BaseStage<RedirectChallenge, FlowChallengeRes
             >
             </ak-empty-state>`;
         }
-        return html`<ak-empty-state loading header=${msg("Loading")}> </ak-empty-state>`;
+        return html`<ak-empty-state ?loading=${true} header=${msg("Loading")}> </ak-empty-state>`;
     }
 
     render(): TemplateResult {
@@ -108,11 +99,5 @@ export class RedirectStage extends BaseStage<RedirectChallenge, FlowChallengeRes
             <footer class="pf-c-login__main-footer">
                 <ul class="pf-c-login__main-footer-links"></ul>
             </footer> `;
-    }
-}
-
-declare global {
-    interface HTMLElementTagNameMap {
-        "ak-stage-redirect": RedirectStage;
     }
 }

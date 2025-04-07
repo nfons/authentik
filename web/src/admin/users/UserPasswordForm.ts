@@ -35,9 +35,3 @@ export class UserPasswordForm extends Form<UserPasswordSetRequest> {
         </ak-form-element-horizontal>`;
     }
 }
-
-declare global {
-    interface HTMLElementTagNameMap {
-        "ak-user-password-form": UserPasswordForm;
-    }
-}

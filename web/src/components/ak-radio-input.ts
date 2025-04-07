@@ -7,7 +7,7 @@ import { customElement, property } from "lit/decorators.js";
 import { HorizontalLightComponent } from "./HorizontalLightComponent";
 
 @customElement("ak-radio-input")
-export class AkRadioInput<T> extends HorizontalLightComponent<T> {
+export class AkRadioInput<T> extends HorizontalLightComponent {
     @property({ type: Object })
     value!: T;
 
@@ -34,12 +34,6 @@ export class AkRadioInput<T> extends HorizontalLightComponent<T> {
             ${this.help.trim()
                 ? html`<p class="pf-c-form__helper-radio">${this.help}</p>`
                 : nothing}`;
-    }
-}
-
-declare global {
-    interface HTMLElementTagNameMap {
-        "ak-radio-input": AkRadioInput<unknown>;
     }
 }
 

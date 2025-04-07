@@ -6,22 +6,22 @@ from django.db.backends.base.schema import BaseDatabaseSchemaEditor
 
 
 def set_oobe_flow_authentication(apps: Apps, schema_editor: BaseDatabaseSchemaEditor):
-    from guardian.conf import settings as guardian_settings
+    from guardian.shortcuts import get_anonymous_user
 
     Flow = apps.get_model("authentik_flows", "Flow")
     User = apps.get_model("authentik_core", "User")
 
     db_alias = schema_editor.connection.alias
 
-    users = (
-        User.objects.using(db_alias)
-        .exclude(username="akadmin")
-        .exclude(username=guardian_settings.ANONYMOUS_USER_NAME)
-    )
+    users = User.objects.using(db_alias).exclude(username="akadmin")
+    try:
+        users = users.exclude(pk=get_anonymous_user().pk)
+    # pylint: disable=broad-except
+    except Exception:  # nosec
+        pass
+
     if users.exists():
-        Flow.objects.using(db_alias).filter(slug="initial-setup").update(
-            authentication="require_superuser"
-        )
+        Flow.objects.filter(slug="initial-setup").update(authentication="require_superuser")
 
 
 class Migration(migrations.Migration):
@@ -40,7 +40,6 @@ class Migration(migrations.Migration):
                     ("require_authenticated", "Require Authenticated"),
                     ("require_unauthenticated", "Require Unauthenticated"),
                     ("require_superuser", "Require Superuser"),
-                    ("require_redirect", "Require Redirect"),
                     ("require_outpost", "Require Outpost"),
                 ],
                 default="none",

@@ -3,10 +3,10 @@
 from json import loads
 
 from django.urls import reverse
-from guardian.shortcuts import assign_perm
 from rest_framework.test import APITestCase
 
-from authentik.core.tests.utils import create_test_admin_user, create_test_user
+from authentik.core.models import User
+from authentik.core.tests.utils import create_test_admin_user
 from authentik.tenants.utils import get_current_tenant
 
 
@@ -15,7 +15,7 @@ class TestImpersonation(APITestCase):
 
     def setUp(self) -> None:
         super().setUp()
-        self.other_user = create_test_user()
+        self.other_user = User.objects.create(username="to-impersonate")
         self.user = create_test_admin_user()
 
     def test_impersonate_simple(self):
@@ -29,8 +29,7 @@ class TestImpersonation(APITestCase):
             reverse(
                 "authentik_api:user-impersonate",
                 kwargs={"pk": self.other_user.pk},
-            ),
-            data={"reason": "some reason"},
+            )
         )
 
         response = self.client.get(reverse("authentik_api:user-me"))
@@ -45,55 +44,12 @@ class TestImpersonation(APITestCase):
         self.assertEqual(response_body["user"]["username"], self.user.username)
         self.assertNotIn("original", response_body)
 
-    def test_impersonate_global(self):
-        """Test impersonation with global permissions"""
-        new_user = create_test_user()
-        assign_perm("authentik_core.impersonate", new_user)
-        assign_perm("authentik_core.view_user", new_user)
-        self.client.force_login(new_user)
-
-        response = self.client.post(
-            reverse(
-                "authentik_api:user-impersonate",
-                kwargs={"pk": self.other_user.pk},
-            ),
-            data={"reason": "some reason"},
-        )
-        self.assertEqual(response.status_code, 201)
-
-        response = self.client.get(reverse("authentik_api:user-me"))
-        response_body = loads(response.content.decode())
-        self.assertEqual(response_body["user"]["username"], self.other_user.username)
-        self.assertEqual(response_body["original"]["username"], new_user.username)
-
-    def test_impersonate_scoped(self):
-        """Test impersonation with scoped permissions"""
-        new_user = create_test_user()
-        assign_perm("authentik_core.impersonate", new_user, self.other_user)
-        assign_perm("authentik_core.view_user", new_user, self.other_user)
-        self.client.force_login(new_user)
-
-        response = self.client.post(
-            reverse(
-                "authentik_api:user-impersonate",
-                kwargs={"pk": self.other_user.pk},
-            ),
-            data={"reason": "some reason"},
-        )
-        self.assertEqual(response.status_code, 201)
-
-        response = self.client.get(reverse("authentik_api:user-me"))
-        response_body = loads(response.content.decode())
-        self.assertEqual(response_body["user"]["username"], self.other_user.username)
-        self.assertEqual(response_body["original"]["username"], new_user.username)
-
     def test_impersonate_denied(self):
         """test impersonation without permissions"""
         self.client.force_login(self.other_user)
 
         response = self.client.post(
-            reverse("authentik_api:user-impersonate", kwargs={"pk": self.user.pk}),
-            data={"reason": "some reason"},
+            reverse("authentik_api:user-impersonate", kwargs={"pk": self.user.pk})
         )
         self.assertEqual(response.status_code, 403)
 
@@ -109,8 +65,7 @@ class TestImpersonation(APITestCase):
         self.client.force_login(self.user)
 
         response = self.client.post(
-            reverse("authentik_api:user-impersonate", kwargs={"pk": self.other_user.pk}),
-            data={"reason": "some reason"},
+            reverse("authentik_api:user-impersonate", kwargs={"pk": self.other_user.pk})
         )
         self.assertEqual(response.status_code, 401)
 
@@ -123,22 +78,7 @@ class TestImpersonation(APITestCase):
         self.client.force_login(self.user)
 
         response = self.client.post(
-            reverse("authentik_api:user-impersonate", kwargs={"pk": self.user.pk}),
-            data={"reason": "some reason"},
-        )
-        self.assertEqual(response.status_code, 401)
-
-        response = self.client.get(reverse("authentik_api:user-me"))
-        response_body = loads(response.content.decode())
-        self.assertEqual(response_body["user"]["username"], self.user.username)
-
-    def test_impersonate_reason_required(self):
-        """test impersonation that user must provide reason"""
-        self.client.force_login(self.user)
-
-        response = self.client.post(
-            reverse("authentik_api:user-impersonate", kwargs={"pk": self.user.pk}),
-            data={"reason": ""},
+            reverse("authentik_api:user-impersonate", kwargs={"pk": self.user.pk})
         )
         self.assertEqual(response.status_code, 401)
 

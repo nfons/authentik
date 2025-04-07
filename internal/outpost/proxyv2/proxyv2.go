@@ -6,7 +6,6 @@ import (
 	"errors"
 	"net"
 	"net/http"
-	"strings"
 	"sync"
 
 	sentryhttp "github.com/getsentry/sentry-go/http"
@@ -71,20 +70,12 @@ func NewProxyServer(ac *ak.APIController) *ProxyServer {
 }
 
 func (ps *ProxyServer) HandleHost(rw http.ResponseWriter, r *http.Request) bool {
-	// Always handle requests for outpost paths that should answer regardless of hostname
-	if strings.HasPrefix(r.URL.Path, "/outpost.goauthentik.io/ping") ||
-		strings.HasPrefix(r.URL.Path, "/outpost.goauthentik.io/static") {
-		ps.mux.ServeHTTP(rw, r)
-		return true
-	}
-	// lookup app by hostname
 	a, _ := ps.lookupApp(r)
 	if a == nil {
 		return false
 	}
-	// check if the app should handle this URL, or is setup in proxy mode
 	if a.ShouldHandleURL(r) || a.Mode() == api.PROXYMODE_PROXY {
-		ps.mux.ServeHTTP(rw, r)
+		a.ServeHTTP(rw, r)
 		return true
 	}
 	return false
@@ -129,13 +120,8 @@ func (ps *ProxyServer) ServeHTTP() {
 		ps.log.WithField("listen", listenAddress).WithError(err).Warning("Failed to listen")
 		return
 	}
-	proxyListener := &proxyproto.Listener{Listener: listener, ConnPolicy: utils.GetProxyConnectionPolicy()}
-	defer func() {
-		err := proxyListener.Close()
-		if err != nil {
-			ps.log.WithError(err).Warning("failed to close proxy listener")
-		}
-	}()
+	proxyListener := &proxyproto.Listener{Listener: listener}
+	defer proxyListener.Close()
 
 	ps.log.WithField("listen", listenAddress).Info("Starting HTTP server")
 	ps.serve(proxyListener)
@@ -153,13 +139,8 @@ func (ps *ProxyServer) ServeHTTPS() {
 		ps.log.WithError(err).Warning("Failed to listen (TLS)")
 		return
 	}
-	proxyListener := &proxyproto.Listener{Listener: web.TCPKeepAliveListener{TCPListener: ln.(*net.TCPListener)}, ConnPolicy: utils.GetProxyConnectionPolicy()}
-	defer func() {
-		err := proxyListener.Close()
-		if err != nil {
-			ps.log.WithError(err).Warning("failed to close proxy listener")
-		}
-	}()
+	proxyListener := &proxyproto.Listener{Listener: web.TCPKeepAliveListener{TCPListener: ln.(*net.TCPListener)}}
+	defer proxyListener.Close()
 
 	tlsListener := tls.NewListener(proxyListener, tlsConfig)
 	ps.log.WithField("listen", listenAddress).Info("Starting HTTPS server")

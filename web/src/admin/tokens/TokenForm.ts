@@ -64,9 +64,7 @@ export class TokenForm extends ModelForm<Token, string> {
                 <input
                     type="text"
                     value="${first(this.instance?.identifier, "")}"
-                    class="pf-c-form-control pf-m-monospace"
-                    autocomplete="off"
-                    spellcheck="false"
+                    class="pf-c-form-control"
                     required
                 />
                 <p class="pf-c-form__helper-text">
@@ -151,11 +149,5 @@ export class TokenForm extends ModelForm<Token, string> {
                 </p>
             </ak-form-element-horizontal>
             ${this.showExpiry ? this.renderExpiry() : html``}`;
-    }
-}
-
-declare global {
-    interface HTMLElementTagNameMap {
-        "ak-token-form": TokenForm;
     }
 }

@@ -8,9 +8,8 @@ import "@goauthentik/elements/EmptyState";
 import { BaseStage } from "@goauthentik/flow/stages/base";
 
 import { msg, str } from "@lit/localize";
-import { CSSResult, PropertyValues, TemplateResult, css, html, nothing } from "lit";
+import { CSSResult, TemplateResult, css, html, nothing } from "lit";
 import { customElement, property } from "lit/decorators.js";
-import { ifDefined } from "lit/directives/if-defined.js";
 
 import PFButton from "@patternfly/patternfly/components/Button/button.css";
 import PFForm from "@patternfly/patternfly/components/Form/form.css";
@@ -115,16 +114,14 @@ export class WebAuthnAuthenticatorRegisterStage extends BaseStage<
             });
     }
 
-    updated(changedProperties: PropertyValues<this>) {
-        if (changedProperties.has("challenge") && this.challenge !== undefined) {
-            // convert certain members of the PublicKeyCredentialCreateOptions into
-            // byte arrays as expected by the spec.
-            this.publicKeyCredentialCreateOptions = transformCredentialCreateOptions(
-                this.challenge?.registration as PublicKeyCredentialCreationOptions,
-                this.challenge?.registration.user.id,
-            );
-            this.registerWrapper();
-        }
+    firstUpdated(): void {
+        // convert certain members of the PublicKeyCredentialCreateOptions into
+        // byte arrays as expected by the spec.
+        this.publicKeyCredentialCreateOptions = transformCredentialCreateOptions(
+            this.challenge?.registration as PublicKeyCredentialCreationOptions,
+            this.challenge?.registration.user.id,
+        );
+        this.registerWrapper();
     }
 
     render(): TemplateResult {
@@ -133,17 +130,6 @@ export class WebAuthnAuthenticatorRegisterStage extends BaseStage<
             </header>
             <div class="pf-c-login__main-body">
                 <form class="pf-c-form">
-                    <ak-form-static
-                        class="pf-c-form__group"
-                        userAvatar="${this.challenge.pendingUserAvatar}"
-                        user=${this.challenge.pendingUser}
-                    >
-                        <div slot="link">
-                            <a href="${ifDefined(this.challenge.flowInfo?.cancelUrl)}"
-                                >${msg("Not you?")}</a
-                            >
-                        </div>
-                    </ak-form-static>
                     <ak-empty-state
                         ?loading="${this.registerRunning}"
                         header=${this.registerRunning
@@ -156,7 +142,7 @@ export class WebAuthnAuthenticatorRegisterStage extends BaseStage<
                         ? html`<p class="pf-m-block">
                               ${this.challenge.responseErrors["response"][0].string}
                           </p>`
-                        : nothing}
+                        : html``}
                     <div class="pf-c-form__group pf-m-action">
                         ${!this.registerRunning
                             ? html` <button
@@ -172,11 +158,5 @@ export class WebAuthnAuthenticatorRegisterStage extends BaseStage<
                     </div>
                 </form>
             </div>`;
-    }
-}
-
-declare global {
-    interface HTMLElementTagNameMap {
-        "ak-stage-authenticator-webauthn": WebAuthnAuthenticatorRegisterStage;
     }
 }

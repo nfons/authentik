@@ -1,5 +1,6 @@
 """OAuth errors"""
 
+from typing import Optional
 from urllib.parse import quote, urlparse
 
 from django.http import HttpRequest, HttpResponse, HttpResponseRedirect
@@ -7,7 +8,7 @@ from django.http import HttpRequest, HttpResponse, HttpResponseRedirect
 from authentik.events.models import Event, EventAction
 from authentik.lib.sentry import SentryIgnoredException
 from authentik.lib.views import bad_request_message
-from authentik.providers.oauth2.models import GrantTypes, RedirectURI
+from authentik.providers.oauth2.models import GrantTypes
 
 
 class OAuth2Error(SentryIgnoredException):
@@ -26,7 +27,7 @@ class OAuth2Error(SentryIgnoredException):
     def __repr__(self) -> str:
         return self.error
 
-    def to_event(self, message: str | None = None, **kwargs) -> Event:
+    def to_event(self, message: Optional[str] = None, **kwargs) -> Event:
         """Create configuration_error Event."""
         return Event.new(
             EventAction.CONFIGURATION_ERROR,
@@ -46,9 +47,9 @@ class RedirectUriError(OAuth2Error):
     )
 
     provided_uri: str
-    allowed_uris: list[RedirectURI]
+    allowed_uris: list[str]
 
-    def __init__(self, provided_uri: str, allowed_uris: list[RedirectURI]) -> None:
+    def __init__(self, provided_uri: str, allowed_uris: list[str]) -> None:
         super().__init__()
         self.provided_uri = provided_uri
         self.allowed_uris = allowed_uris
@@ -141,13 +142,14 @@ class AuthorizeError(OAuth2Error):
         ),
     }
 
+    # pylint: disable=too-many-arguments
     def __init__(
         self,
         redirect_uri: str,
         error: str,
         grant_type: str,
         state: str,
-        description: str | None = None,
+        description: Optional[str] = None,
     ):
         super().__init__()
         self.error = error

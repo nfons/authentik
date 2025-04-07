@@ -2,7 +2,6 @@ import { EVENT_REFRESH } from "@goauthentik/common/constants";
 import "@goauthentik/elements/LoadingOverlay";
 import { ModalButton } from "@goauthentik/elements/buttons/ModalButton";
 import "@goauthentik/elements/buttons/SpinnerButton";
-import { ModalHideEvent } from "@goauthentik/elements/controllers/ModalOrchestrationController.js";
 import { Form } from "@goauthentik/elements/forms/Form";
 
 import { msg } from "@lit/localize";
@@ -56,7 +55,7 @@ export class ModalForm extends ModalButton {
 
     renderModalInner(): TemplateResult {
         return html`${this.loading
-                ? html`<ak-loading-overlay topmost></ak-loading-overlay>`
+                ? html`<ak-loading-overlay ?topMost=${true}></ak-loading-overlay>`
                 : html``}
             <section class="pf-c-modal-box__header pf-c-page__main-section pf-m-light">
                 <div class="pf-c-content">
@@ -93,18 +92,13 @@ export class ModalForm extends ModalButton {
                     : html``}
                 <ak-spinner-button
                     .callAction=${async () => {
-                        this.dispatchEvent(new ModalHideEvent(this));
+                        this.resetForms();
+                        this.open = false;
                     }}
                     class="pf-m-secondary"
                 >
                     ${this.cancelText}
                 </ak-spinner-button>
             </footer>`;
-    }
-}
-
-declare global {
-    interface HTMLElementTagNameMap {
-        "ak-forms-modal": ModalForm;
     }
 }

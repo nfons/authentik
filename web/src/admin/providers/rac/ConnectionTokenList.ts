@@ -1,4 +1,5 @@
 import { DEFAULT_CONFIG } from "@goauthentik/common/api/config";
+import { uiConfig } from "@goauthentik/common/ui/config";
 import "@goauthentik/elements/buttons/SpinnerButton";
 import "@goauthentik/elements/forms/DeleteBulkForm";
 import "@goauthentik/elements/forms/ModalForm";
@@ -36,9 +37,12 @@ export class ConnectionTokenListPage extends Table<ConnectionToken> {
         return super.styles.concat(PFDescriptionList);
     }
 
-    async apiEndpoint(): Promise<PaginatedResponse<ConnectionToken>> {
+    async apiEndpoint(page: number): Promise<PaginatedResponse<ConnectionToken>> {
         return new RacApi(DEFAULT_CONFIG).racConnectionTokensList({
-            ...(await this.defaultEndpointConfig()),
+            ordering: this.order,
+            page: page,
+            pageSize: (await uiConfig()).pagination.perPage,
+            search: this.search || "",
             provider: this.provider?.pk,
             sessionUser: this.userId,
         });
@@ -57,12 +61,12 @@ export class ConnectionTokenListPage extends Table<ConnectionToken> {
             }}
             .usedBy=${(item: ConnectionToken) => {
                 return new RacApi(DEFAULT_CONFIG).racConnectionTokensUsedByList({
-                    connectionTokenUuid: item.pk || "",
+                    connectionTokenUuid: item.pk,
                 });
             }}
             .delete=${(item: ConnectionToken) => {
                 return new RacApi(DEFAULT_CONFIG).racConnectionTokensDestroy({
-                    connectionTokenUuid: item.pk || "",
+                    connectionTokenUuid: item.pk,
                 });
             }}
         >
@@ -90,11 +94,5 @@ export class ConnectionTokenListPage extends Table<ConnectionToken> {
             return [html`${item.endpointObj.name}`, html`${item.user.username}`];
         }
         return [html`${item.providerObj.name}`, html`${item.endpointObj.name}`];
-    }
-}
-
-declare global {
-    interface HTMLElementTagNameMap {
-        "ak-rac-connection-token-list": ConnectionTokenListPage;
     }
 }

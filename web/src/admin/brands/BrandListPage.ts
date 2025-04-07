@@ -1,11 +1,12 @@
 import "@goauthentik/admin/brands/BrandForm";
-import "@goauthentik/admin/rbac/ObjectPermissionModal";
 import { DEFAULT_CONFIG } from "@goauthentik/common/api/config";
+import { uiConfig } from "@goauthentik/common/ui/config";
 import "@goauthentik/components/ak-status-label";
 import "@goauthentik/components/ak-status-label";
 import "@goauthentik/elements/buttons/SpinnerButton";
 import "@goauthentik/elements/forms/DeleteBulkForm";
 import "@goauthentik/elements/forms/ModalForm";
+import "@goauthentik/elements/rbac/ObjectPermissionModal";
 import { PaginatedResponse } from "@goauthentik/elements/table/Table";
 import { TableColumn } from "@goauthentik/elements/table/Table";
 import { TablePage } from "@goauthentik/elements/table/TablePage";
@@ -38,8 +39,13 @@ export class BrandListPage extends TablePage<Brand> {
     @property()
     order = "domain";
 
-    async apiEndpoint(): Promise<PaginatedResponse<Brand>> {
-        return new CoreApi(DEFAULT_CONFIG).coreBrandsList(await this.defaultEndpointConfig());
+    async apiEndpoint(page: number): Promise<PaginatedResponse<Brand>> {
+        return new CoreApi(DEFAULT_CONFIG).coreBrandsList({
+            ordering: this.order,
+            page: page,
+            pageSize: (await uiConfig()).pagination.perPage,
+            search: this.search || "",
+        });
     }
 
     columns(): TableColumn[] {
@@ -93,7 +99,7 @@ export class BrandListPage extends TablePage<Brand> {
                 </ak-forms-modal>
 
                 <ak-rbac-object-permission-modal
-                    model=${RbacPermissionsAssignedByUsersListModelEnum.AuthentikBrandsBrand}
+                    model=${RbacPermissionsAssignedByUsersListModelEnum.BrandsBrand}
                     objectPk=${item.brandUuid}
                 >
                 </ak-rbac-object-permission-modal>`,
@@ -109,11 +115,5 @@ export class BrandListPage extends TablePage<Brand> {
                 <button slot="trigger" class="pf-c-button pf-m-primary">${msg("Create")}</button>
             </ak-forms-modal>
         `;
-    }
-}
-
-declare global {
-    interface HTMLElementTagNameMap {
-        "ak-brand-list": BrandListPage;
     }
 }

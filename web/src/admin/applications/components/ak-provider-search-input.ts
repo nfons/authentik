@@ -78,9 +78,3 @@ export class AkProviderInput extends AKElement {
         </ak-form-element-horizontal>`;
     }
 }
-
-declare global {
-    interface HTMLElementTagNameMap {
-        "ak-provider-search-input": AkProviderInput;
-    }
-}

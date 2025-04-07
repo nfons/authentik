@@ -4,17 +4,30 @@
 PWD = $(shell pwd)
 UID = $(shell id -u)
 GID = $(shell id -g)
-NPM_VERSION = $(shell python -m scripts.generate_semver)
+NPM_VERSION = $(shell python -m scripts.npm_version)
 PY_SOURCES = authentik tests scripts lifecycle .github
 DOCKER_IMAGE ?= "authentik:test"
 
 GEN_API_TS = "gen-ts-api"
-GEN_API_PY = "gen-py-api"
 GEN_API_GO = "gen-go-api"
 
-pg_user := $(shell uv run python -m authentik.lib.config postgresql.user 2>/dev/null)
-pg_host := $(shell uv run python -m authentik.lib.config postgresql.host 2>/dev/null)
-pg_name := $(shell uv run python -m authentik.lib.config postgresql.name 2>/dev/null)
+pg_user := $(shell python -m authentik.lib.config postgresql.user 2>/dev/null)
+pg_host := $(shell python -m authentik.lib.config postgresql.host 2>/dev/null)
+pg_name := $(shell python -m authentik.lib.config postgresql.name 2>/dev/null)
+
+CODESPELL_ARGS = -D - -D .github/codespell-dictionary.txt \
+		-I .github/codespell-words.txt \
+		-S 'web/src/locales/**' \
+		authentik \
+		internal \
+		cmd \
+		web/src \
+		website/src \
+		website/blog \
+		website/developer-docs \
+		website/docs \
+		website/integrations \
+		website/src
 
 all: lint-fix lint test gen web  ## Lint, build, and test everything
 
@@ -28,41 +41,45 @@ help:  ## Show this help
 		sort
 	@echo ""
 
-go-test:
+test-go:
 	go test -timeout 0 -v -race -cover ./...
 
+test-docker:  ## Run all tests in a docker-compose
+	echo "PG_PASS=$(openssl rand -base64 32)" >> .env
+	echo "AUTHENTIK_SECRET_KEY=$(openssl rand -base64 32)" >> .env
+	docker-compose pull -q
+	docker-compose up --no-start
+	docker-compose start postgresql redis
+	docker-compose run -u root server test-all
+	rm -f .env
+
 test: ## Run the server tests and produce a coverage report (locally)
-	uv run coverage run manage.py test --keepdb authentik
-	uv run coverage html
-	uv run coverage report
+	coverage run manage.py test --keepdb authentik
+	coverage html
+	coverage report
 
-lint-fix: lint-codespell  ## Lint and automatically fix errors in the python source code. Reports spelling errors.
-	uv run black $(PY_SOURCES)
-	uv run ruff check --fix $(PY_SOURCES)
-
-lint-codespell:  ## Reports spelling errors.
-	uv run codespell -w
+lint-fix:  ## Lint and automatically fix errors in the python source code. Reports spelling errors.
+	isort $(PY_SOURCES)
+	black $(PY_SOURCES)
+	ruff --fix $(PY_SOURCES)
+	codespell -w $(CODESPELL_ARGS)
 
 lint: ## Lint the python and golang sources
-	uv run bandit -c pyproject.toml -r $(PY_SOURCES)
+	bandit -r $(PY_SOURCES) -x node_modules
+	./web/node_modules/.bin/pyright $(PY_SOURCES)
+	pylint $(PY_SOURCES)
 	golangci-lint run -v
 
 core-install:
-	uv sync --frozen
+	poetry install
 
 migrate: ## Run the Authentik Django server's migrations
-	uv run python -m lifecycle.migrate
+	python -m lifecycle.migrate
 
 i18n-extract: core-i18n-extract web-i18n-extract  ## Extract strings that require translation into files to send to a translation service
 
-aws-cfn:
-	cd lifecycle/aws && npm run aws-cfn
-
-run:  ## Run the main authentik server process
-	uv run ak server
-
 core-i18n-extract:
-	uv run ak makemessages \
+	ak makemessages \
 		--add-location file \
 		--no-obsolete \
 		--ignore web \
@@ -93,11 +110,11 @@ gen-build:  ## Extract the schema from the database
 	AUTHENTIK_DEBUG=true \
 		AUTHENTIK_TENANTS__ENABLED=true \
 		AUTHENTIK_OUTPOSTS__DISABLE_EMBEDDED_OUTPOST=true \
-		uv run ak make_blueprint_schema > blueprints/schema.json
+		ak make_blueprint_schema > blueprints/schema.json
 	AUTHENTIK_DEBUG=true \
 		AUTHENTIK_TENANTS__ENABLED=true \
 		AUTHENTIK_OUTPOSTS__DISABLE_EMBEDDED_OUTPOST=true \
-		uv run ak spectacular --file schema.yml
+		ak spectacular --file schema.yml
 
 gen-changelog:  ## (Release) generate the changelog based from the commits since the last tag
 	git log --pretty=format:" - %s" $(shell git describe --tags $(shell git rev-list --tags --max-count=1))...$(shell git branch --show-current) | sort > changelog.md
@@ -123,16 +140,13 @@ gen-clean-ts:  ## Remove generated API client for Typescript
 gen-clean-go:  ## Remove generated API client for Go
 	rm -rf ./${GEN_API_GO}/
 
-gen-clean-py:  ## Remove generated API client for Python
-	rm -rf ./${GEN_API_PY}/
-
-gen-clean: gen-clean-ts gen-clean-go gen-clean-py  ## Remove generated API clients
+gen-clean: gen-clean-ts gen-clean-go  ## Remove generated API clients
 
 gen-client-ts: gen-clean-ts  ## Build and install the authentik API for Typescript into the authentik UI Application
 	docker run \
 		--rm -v ${PWD}:/local \
 		--user ${UID}:${GID} \
-		docker.io/openapitools/openapi-generator-cli:v7.11.0 generate \
+		docker.io/openapitools/openapi-generator-cli:v6.5.0 generate \
 		-i /local/schema.yml \
 		-g typescript-fetch \
 		-o /local/${GEN_API_TS} \
@@ -143,20 +157,6 @@ gen-client-ts: gen-clean-ts  ## Build and install the authentik API for Typescri
 	mkdir -p web/node_modules/@goauthentik/api
 	cd ./${GEN_API_TS} && npm i
 	\cp -rf ./${GEN_API_TS}/* web/node_modules/@goauthentik/api
-
-gen-client-py: gen-clean-py ## Build and install the authentik API for Python
-	docker run \
-		--rm -v ${PWD}:/local \
-		--user ${UID}:${GID} \
-		docker.io/openapitools/openapi-generator-cli:v7.11.0 generate \
-		-i /local/schema.yml \
-		-g python \
-		-o /local/${GEN_API_PY} \
-		-c /local/scripts/api-py-config.yaml \
-		--additional-properties=packageVersion=${NPM_VERSION} \
-		--git-repo-id authentik \
-		--git-user-id goauthentik
-	pip install ./${GEN_API_PY}
 
 gen-client-go: gen-clean-go  ## Build and install the authentik API for Golang
 	mkdir -p ./${GEN_API_GO} ./${GEN_API_GO}/templates
@@ -176,7 +176,7 @@ gen-client-go: gen-clean-go  ## Build and install the authentik API for Golang
 	rm -rf ./${GEN_API_GO}/config.yaml ./${GEN_API_GO}/templates/
 
 gen-dev-config:  ## Generate a local development config file
-	uv run scripts/generate_config.py
+	python -m scripts.generate_config
 
 gen: gen-build gen-client-ts
 
@@ -191,9 +191,6 @@ web: web-lint-fix web-lint web-check-compile  ## Automatically fix formatting is
 
 web-install:  ## Install the necessary libraries to build the Authentik UI
 	cd web && npm ci
-
-web-test: ## Run tests for the Authentik UI
-	cd web && npm run test
 
 web-watch:  ## Build and watch the Authentik UI for changes, updating automatically
 	rm -rf web/dist/
@@ -226,7 +223,7 @@ website: website-lint-fix website-build  ## Automatically fix formatting issues 
 website-install:
 	cd website && npm ci
 
-website-lint-fix: lint-codespell
+website-lint-fix:
 	cd website && npm run prettier
 
 website-build:
@@ -240,11 +237,7 @@ website-watch:  ## Build and watch the documentation website, updating automatic
 #########################
 
 docker:  ## Build a docker image of the current source tree
-	mkdir -p ${GEN_API_TS}
 	DOCKER_BUILDKIT=1 docker build . --progress plain --tag ${DOCKER_IMAGE}
-
-test-docker:
-	BUILD=true ./scripts/test_docker.sh
 
 #########################
 ## CI
@@ -256,22 +249,26 @@ ci--meta-debug:
 	python -V
 	node --version
 
+ci-pylint: ci--meta-debug
+	pylint $(PY_SOURCES)
+
 ci-black: ci--meta-debug
-	uv run black --check $(PY_SOURCES)
+	black --check $(PY_SOURCES)
 
 ci-ruff: ci--meta-debug
-	uv run ruff check $(PY_SOURCES)
+	ruff check $(PY_SOURCES)
 
 ci-codespell: ci--meta-debug
-	uv run codespell -s
+	codespell $(CODESPELL_ARGS) -s
+
+ci-isort: ci--meta-debug
+	isort --check $(PY_SOURCES)
 
 ci-bandit: ci--meta-debug
-	uv run bandit -r $(PY_SOURCES)
+	bandit -r $(PY_SOURCES)
+
+ci-pyright: ci--meta-debug
+	./web/node_modules/.bin/pyright $(PY_SOURCES)
 
 ci-pending-migrations: ci--meta-debug
-	uv run ak makemigrations --check
-
-ci-test: ci--meta-debug
-	uv run coverage run manage.py test --keepdb --randomly-seed ${CI_TEST_SEED} authentik
-	uv run coverage report
-	uv run coverage xml
+	ak makemigrations --check

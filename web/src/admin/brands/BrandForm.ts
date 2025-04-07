@@ -15,13 +15,7 @@ import { msg } from "@lit/localize";
 import { TemplateResult, html } from "lit";
 import { customElement } from "lit/decorators.js";
 
-import {
-    Application,
-    Brand,
-    CoreApi,
-    CoreApplicationsListRequest,
-    FlowsInstancesListDesignationEnum,
-} from "@goauthentik/api";
+import { Brand, CoreApi, FlowsInstancesListDesignationEnum } from "@goauthentik/api";
 
 @customElement("ak-brand-form")
 export class BrandForm extends ModelForm<Brand, string> {
@@ -51,14 +45,15 @@ export class BrandForm extends ModelForm<Brand, string> {
     }
 
     renderForm(): TemplateResult {
-        return html` <ak-form-element-horizontal label=${msg("Domain")} required name="domain">
+        return html` <ak-form-element-horizontal
+                label=${msg("Domain")}
+                ?required=${true}
+                name="domain"
+            >
                 <input
                     type="text"
                     value="${first(this.instance?.domain, window.location.host)}"
-                    class="pf-c-form-control pf-m-monospace"
-                    autocomplete="off"
-                    spellcheck="false"
-                    inputmode="url"
+                    class="pf-c-form-control"
                     required
                 />
                 <p class="pf-c-form__helper-text">
@@ -86,10 +81,14 @@ export class BrandForm extends ModelForm<Brand, string> {
                 </p>
             </ak-form-element-horizontal>
 
-            <ak-form-group>
+            <ak-form-group .expanded=${true}>
                 <span slot="header"> ${msg("Branding settings")} </span>
                 <div slot="body" class="pf-c-form">
-                    <ak-form-element-horizontal label=${msg("Title")} required name="brandingTitle">
+                    <ak-form-element-horizontal
+                        label=${msg("Title")}
+                        ?required=${true}
+                        name="brandingTitle"
+                    >
                         <input
                             type="text"
                             value="${first(
@@ -103,13 +102,15 @@ export class BrandForm extends ModelForm<Brand, string> {
                             ${msg("Branding shown in page title and several other places.")}
                         </p>
                     </ak-form-element-horizontal>
-                    <ak-form-element-horizontal label=${msg("Logo")} required name="brandingLogo">
+                    <ak-form-element-horizontal
+                        label=${msg("Logo")}
+                        ?required=${true}
+                        name="brandingLogo"
+                    >
                         <input
                             type="text"
                             value="${first(this.instance?.brandingLogo, DefaultBrand.brandingLogo)}"
-                            class="pf-c-form-control pf-m-monospace"
-                            autocomplete="off"
-                            spellcheck="false"
+                            class="pf-c-form-control"
                             required
                         />
                         <p class="pf-c-form__helper-text">
@@ -118,7 +119,7 @@ export class BrandForm extends ModelForm<Brand, string> {
                     </ak-form-element-horizontal>
                     <ak-form-element-horizontal
                         label=${msg("Favicon")}
-                        required
+                        ?required=${true}
                         name="brandingFavicon"
                     >
                         <input
@@ -127,102 +128,15 @@ export class BrandForm extends ModelForm<Brand, string> {
                                 this.instance?.brandingFavicon,
                                 DefaultBrand.brandingFavicon,
                             )}"
-                            class="pf-c-form-control pf-m-monospace"
-                            autocomplete="off"
-                            spellcheck="false"
+                            class="pf-c-form-control"
                             required
                         />
                         <p class="pf-c-form__helper-text">
                             ${msg("Icon shown in the browser tab.")}
                         </p>
                     </ak-form-element-horizontal>
-                    <ak-form-element-horizontal
-                        label=${msg("Default flow background")}
-                        ?required=${true}
-                        name="brandingDefaultFlowBackground"
-                    >
-                        <input
-                            type="text"
-                            value="${first(
-                                this.instance?.brandingDefaultFlowBackground,
-                                "/static/dist/assets/images/flow_background.jpg",
-                            )}"
-                            class="pf-c-form-control pf-m-monospace"
-                            autocomplete="off"
-                            spellcheck="false"
-                            required
-                        />
-                        <p class="pf-c-form__helper-text">
-                            ${msg(
-                                "Default background used during flow execution. Can be overridden per flow.",
-                            )}
-                        </p>
-                    </ak-form-element-horizontal>
-                    <ak-form-element-horizontal
-                        label=${msg("Custom CSS")}
-                        required
-                        name="brandingCustomCss"
-                    >
-                        <ak-codemirror
-                            mode=${CodeMirrorMode.CSS}
-                            value="${first(
-                                this.instance?.brandingCustomCss,
-                                DefaultBrand.brandingCustomCss,
-                            )}"
-                        >
-                        </ak-codemirror>
-                        <p class="pf-c-form__helper-text">
-                            ${msg("Custom CSS to apply to pages when this brand is active.")}
-                        </p>
-                    </ak-form-element-horizontal>
                 </div>
             </ak-form-group>
-
-            <ak-form-group>
-                <span slot="header"> ${msg("External user settings")} </span>
-                <div slot="body" class="pf-c-form">
-                    <ak-form-element-horizontal
-                        label=${msg("Default application")}
-                        name="defaultApplication"
-                    >
-                        <ak-search-select
-                            blankable
-                            .fetchObjects=${async (query?: string): Promise<Application[]> => {
-                                const args: CoreApplicationsListRequest = {
-                                    ordering: "name",
-                                    superuserFullList: true,
-                                };
-                                if (query !== undefined) {
-                                    args.search = query;
-                                }
-                                const users = await new CoreApi(
-                                    DEFAULT_CONFIG,
-                                ).coreApplicationsList(args);
-                                return users.results;
-                            }}
-                            .renderElement=${(item: Application): string => {
-                                return item.name;
-                            }}
-                            .renderDescription=${(item: Application): TemplateResult => {
-                                return html`${item.slug}`;
-                            }}
-                            .value=${(item: Application | undefined): string | undefined => {
-                                return item?.pk;
-                            }}
-                            .selected=${(item: Application): boolean => {
-                                return item.pk === this.instance?.defaultApplication;
-                            }}
-                        >
-                        </ak-search-select>
-                        <p class="pf-c-form__helper-text">
-                            ${msg(
-                                "When configured, external users will automatically be redirected to this application when not attempting to access a different application",
-                            )}
-                        </p>
-                    </ak-form-element-horizontal>
-                </div>
-            </ak-form-group>
-
             <ak-form-group>
                 <span slot="header"> ${msg("Default flows")} </span>
                 <div slot="body" class="pf-c-form">
@@ -260,6 +174,11 @@ export class BrandForm extends ModelForm<Brand, string> {
                             flowType=${FlowsInstancesListDesignationEnum.Recovery}
                             .currentFlow=${this.instance?.flowRecovery}
                         ></ak-flow-search>
+                        <p class="pf-c-form__helper-text">
+                            ${msg(
+                                "Recovery flow. If left empty, the first applicable flow sorted by the slug is used.",
+                            )}
+                        </p>
                     </ak-form-element-horizontal>
                     <ak-form-element-horizontal
                         label=${msg("Unenrollment flow")}
@@ -328,11 +247,5 @@ export class BrandForm extends ModelForm<Brand, string> {
                     </ak-form-element-horizontal>
                 </div>
             </ak-form-group>`;
-    }
-}
-
-declare global {
-    interface HTMLElementTagNameMap {
-        "ak-brand-form": BrandForm;
     }
 }

@@ -3,6 +3,8 @@
 from json import loads
 from time import sleep
 
+from docker import DockerClient, from_env
+from docker.models.containers import Container
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support import expected_conditions as ec
 
@@ -19,13 +21,7 @@ from authentik.providers.oauth2.constants import (
     SCOPE_OPENID_EMAIL,
     SCOPE_OPENID_PROFILE,
 )
-from authentik.providers.oauth2.models import (
-    ClientTypes,
-    OAuth2Provider,
-    RedirectURI,
-    RedirectURIMatchingMode,
-    ScopeMapping,
-)
+from authentik.providers.oauth2.models import ClientTypes, OAuth2Provider, ScopeMapping
 from tests.e2e.utils import SeleniumTestCase, retry
 
 
@@ -38,11 +34,13 @@ class TestProviderOAuth2OIDCImplicit(SeleniumTestCase):
         self.application_slug = "test"
         super().setUp()
 
-    def setup_client(self):
+    def setup_client(self) -> Container:
         """Setup client oidc-test-client container which we test OIDC against"""
         sleep(1)
-        self.run_container(
+        client: DockerClient = from_env()
+        container = client.containers.run(
             image="ghcr.io/beryju/oidc-test-client:2.1",
+            detach=True,
             ports={
                 "9009": "9009",
             },
@@ -52,6 +50,8 @@ class TestProviderOAuth2OIDCImplicit(SeleniumTestCase):
                 "OIDC_PROVIDER": f"{self.live_server_url}/application/o/{self.application_slug}/",
             },
         )
+        self.wait_for_container(container)
+        return container
 
     @retry()
     @apply_blueprint(
@@ -74,7 +74,7 @@ class TestProviderOAuth2OIDCImplicit(SeleniumTestCase):
             client_id=self.client_id,
             client_secret=self.client_secret,
             signing_key=create_test_cert(),
-            redirect_uris=[RedirectURI(RedirectURIMatchingMode.STRICT, "http://localhost:9009/")],
+            redirect_uris="http://localhost:9009/",
             authorization_flow=authorization_flow,
         )
         provider.property_mappings.set(
@@ -93,7 +93,7 @@ class TestProviderOAuth2OIDCImplicit(SeleniumTestCase):
             slug=self.application_slug,
             provider=provider,
         )
-        self.setup_client()
+        self.container = self.setup_client()
 
         self.driver.get("http://localhost:9009/implicit/")
         sleep(2)
@@ -123,9 +123,7 @@ class TestProviderOAuth2OIDCImplicit(SeleniumTestCase):
             client_id=self.client_id,
             client_secret=self.client_secret,
             signing_key=create_test_cert(),
-            redirect_uris=[
-                RedirectURI(RedirectURIMatchingMode.STRICT, "http://localhost:9009/implicit/")
-            ],
+            redirect_uris="http://localhost:9009/implicit/",
             authorization_flow=authorization_flow,
         )
         provider.property_mappings.set(
@@ -144,7 +142,7 @@ class TestProviderOAuth2OIDCImplicit(SeleniumTestCase):
             slug=self.application_slug,
             provider=provider,
         )
-        self.setup_client()
+        self.container = self.setup_client()
 
         self.driver.get("http://localhost:9009/implicit/")
         self.wait.until(ec.title_contains("authentik"))
@@ -178,9 +176,7 @@ class TestProviderOAuth2OIDCImplicit(SeleniumTestCase):
             client_id=self.client_id,
             client_secret=self.client_secret,
             signing_key=create_test_cert(),
-            redirect_uris=[
-                RedirectURI(RedirectURIMatchingMode.STRICT, "http://localhost:9009/implicit/")
-            ],
+            redirect_uris="http://localhost:9009/implicit/",
         )
         provider.property_mappings.set(
             ScopeMapping.objects.filter(
@@ -198,7 +194,7 @@ class TestProviderOAuth2OIDCImplicit(SeleniumTestCase):
             slug=self.application_slug,
             provider=provider,
         )
-        self.setup_client()
+        self.container = self.setup_client()
 
         self.driver.get("http://localhost:9009/implicit/")
         self.wait.until(ec.title_contains("authentik"))
@@ -248,9 +244,7 @@ class TestProviderOAuth2OIDCImplicit(SeleniumTestCase):
             client_id=self.client_id,
             client_secret=self.client_secret,
             signing_key=create_test_cert(),
-            redirect_uris=[
-                RedirectURI(RedirectURIMatchingMode.STRICT, "http://localhost:9009/implicit/")
-            ],
+            redirect_uris="http://localhost:9009/implicit/",
         )
         provider.property_mappings.set(
             ScopeMapping.objects.filter(
@@ -274,7 +268,7 @@ class TestProviderOAuth2OIDCImplicit(SeleniumTestCase):
         )
         PolicyBinding.objects.create(target=app, policy=negative_policy, order=0)
 
-        self.setup_client()
+        self.container = self.setup_client()
         self.driver.get("http://localhost:9009/implicit/")
         self.wait.until(ec.title_contains("authentik"))
         self.login()

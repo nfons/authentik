@@ -9,7 +9,6 @@ from django.utils import timezone
 from django.utils.functional import cached_property
 
 from authentik.core.models import User
-from authentik.lib.models import CreatedUpdatedModel
 from authentik.stages.authenticator.util import random_number_token
 
 
@@ -19,7 +18,7 @@ class DeviceManager(models.Manager):
     ``Device.objects``.
     """
 
-    def devices_for_user(self, user: User, confirmed: bool | None = None):
+    def devices_for_user(self, user, confirmed=None):
         """
         Returns a queryset for all devices of this class that belong to the
         given user.
@@ -38,7 +37,7 @@ class DeviceManager(models.Manager):
         return devices
 
 
-class Device(CreatedUpdatedModel):
+class Device(models.Model):
     """
     Abstract base model for a :term:`device` attached to a user. Plugins must
     subclass this to define their OTP models.
@@ -86,8 +85,6 @@ class Device(CreatedUpdatedModel):
 
     confirmed = models.BooleanField(default=True, help_text="Is this device ready for use?")
 
-    last_used = models.DateTimeField(null=True)
-
     objects = DeviceManager()
 
     class Meta:
@@ -99,14 +96,14 @@ class Device(CreatedUpdatedModel):
         except ObjectDoesNotExist:
             user = None
 
-        return f"{self.name} ({user})"
+        return "{0} ({1})".format(self.name, user)
 
     @property
     def persistent_id(self):
         """
         A stable device identifier for forms and APIs.
         """
-        return f"{self.model_label()}/{self.id}"
+        return "{0}/{1}".format(self.model_label(), self.id)
 
     @classmethod
     def model_label(cls):
@@ -116,7 +113,7 @@ class Device(CreatedUpdatedModel):
         This is just the standard "<app_label>.<model_name>" form.
 
         """
-        return f"{cls._meta.app_label}.{cls._meta.model_name}"
+        return "{0}.{1}".format(cls._meta.app_label, cls._meta.model_name)
 
     @classmethod
     def from_persistent_id(cls, persistent_id, for_verify=False):
@@ -317,9 +314,6 @@ class ThrottlingMixin(models.Model):
         default=0, help_text="Number of successive failed attempts."
     )
 
-    class Meta:
-        abstract = True
-
     def verify_is_allowed(self):
         """
         If verification is allowed, returns ``(True, None)``.
@@ -403,3 +397,6 @@ class ThrottlingMixin(models.Model):
 
         """
         raise NotImplementedError()
+
+    class Meta:
+        abstract = True

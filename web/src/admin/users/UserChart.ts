@@ -68,9 +68,3 @@ export class UserChart extends AKChart<UserMetrics> {
         };
     }
 }
-
-declare global {
-    interface HTMLElementTagNameMap {
-        "ak-charts-user": UserChart;
-    }
-}

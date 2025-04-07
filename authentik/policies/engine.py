@@ -1,13 +1,13 @@
 """authentik policy engine"""
 
-from collections.abc import Iterator
 from multiprocessing import Pipe, current_process
 from multiprocessing.connection import Connection
 from time import perf_counter
+from typing import Iterator, Optional
 
 from django.core.cache import cache
 from django.http import HttpRequest
-from sentry_sdk import start_span
+from sentry_sdk.hub import Hub
 from sentry_sdk.tracing import Span
 from structlog.stdlib import BoundLogger, get_logger
 
@@ -27,7 +27,7 @@ class PolicyProcessInfo:
 
     process: PolicyProcess
     connection: Connection
-    result: PolicyResult | None
+    result: Optional[PolicyResult]
     binding: PolicyBinding
 
     def __init__(self, process: PolicyProcess, connection: Connection, binding: PolicyBinding):
@@ -111,9 +111,9 @@ class PolicyEngine:
     def build(self) -> "PolicyEngine":
         """Build wrapper which monitors performance"""
         with (
-            start_span(
+            Hub.current.start_span(
                 op="authentik.policy.engine.build",
-                name=self.__pbm,
+                description=self.__pbm,
             ) as span,
             HIST_POLICIES_ENGINE_TOTAL_TIME.labels(
                 obj_type=class_to_path(self.__pbm.__class__),

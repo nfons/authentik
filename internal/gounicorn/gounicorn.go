@@ -44,11 +44,10 @@ func New(healthcheck func() bool) *GoUnicorn {
 	signal.Notify(c, syscall.SIGHUP, syscall.SIGUSR2)
 	go func() {
 		for sig := range c {
-			switch sig {
-			case syscall.SIGHUP:
+			if sig == syscall.SIGHUP {
 				g.log.Info("SIGHUP received, forwarding to gunicorn")
 				g.Reload()
-			case syscall.SIGUSR2:
+			} else if sig == syscall.SIGUSR2 {
 				g.log.Info("SIGUSR2 received, restarting gunicorn")
 				g.Restart()
 			}
@@ -97,14 +96,17 @@ func (g *GoUnicorn) healthcheck() {
 	g.log.Debug("starting healthcheck")
 	// Default healthcheck is every 1 second on startup
 	// once we've been healthy once, increase to 30 seconds
-	for range time.NewTicker(time.Second).C {
+	for range time.Tick(time.Second) {
 		if g.Healthcheck() {
 			g.alive = true
-			g.log.Debug("backend is alive, backing off with healthchecks")
+			g.log.Info("backend is alive, backing off with healthchecks")
 			g.HealthyCallback()
 			break
 		}
 		g.log.Debug("backend not alive yet")
+	}
+	for range time.Tick(30 * time.Second) {
+		g.Healthcheck()
 	}
 }
 

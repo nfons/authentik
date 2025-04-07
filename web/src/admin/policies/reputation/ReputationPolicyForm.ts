@@ -125,9 +125,3 @@ doesn't pass when either or both of the selected options are equal or above the 
             </ak-form-group>`;
     }
 }
-
-declare global {
-    interface HTMLElementTagNameMap {
-        "ak-policy-reputation-form": ReputationPolicyForm;
-    }
-}

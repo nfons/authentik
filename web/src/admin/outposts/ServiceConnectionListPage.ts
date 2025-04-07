@@ -2,14 +2,15 @@ import "@goauthentik/admin/outposts/OutpostHealth";
 import "@goauthentik/admin/outposts/ServiceConnectionDockerForm";
 import "@goauthentik/admin/outposts/ServiceConnectionKubernetesForm";
 import "@goauthentik/admin/outposts/ServiceConnectionWizard";
-import "@goauthentik/admin/rbac/ObjectPermissionModal";
 import { DEFAULT_CONFIG } from "@goauthentik/common/api/config";
+import { uiConfig } from "@goauthentik/common/ui/config";
 import "@goauthentik/components/ak-status-label";
 import { PFColor } from "@goauthentik/elements/Label";
 import "@goauthentik/elements/buttons/SpinnerButton";
 import "@goauthentik/elements/forms/DeleteBulkForm";
 import "@goauthentik/elements/forms/ModalForm";
 import "@goauthentik/elements/forms/ProxyForm";
+import "@goauthentik/elements/rbac/ObjectPermissionModal";
 import { PaginatedResponse } from "@goauthentik/elements/table/Table";
 import { TableColumn } from "@goauthentik/elements/table/Table";
 import { TablePage } from "@goauthentik/elements/table/TablePage";
@@ -25,12 +26,10 @@ import { OutpostsApi, ServiceConnection, ServiceConnectionState } from "@goauthe
 @customElement("ak-outpost-service-connection-list")
 export class OutpostServiceConnectionListPage extends TablePage<ServiceConnection> {
     pageTitle(): string {
-        return msg("Outpost integrations");
+        return "Outpost integrations";
     }
     pageDescription(): string | undefined {
-        return msg(
-            "Outpost integrations define how authentik connects to external platforms to manage and deploy Outposts.",
-        );
+        return "Outpost integrations define how authentik connects to external platforms to manage and deploy Outposts.";
     }
     pageIcon(): string {
         return "pf-icon pf-icon-integration";
@@ -42,11 +41,16 @@ export class OutpostServiceConnectionListPage extends TablePage<ServiceConnectio
     checkbox = true;
     clearOnRefresh = true;
 
-    async apiEndpoint(): Promise<PaginatedResponse<ServiceConnection>> {
+    async apiEndpoint(page: number): Promise<PaginatedResponse<ServiceConnection>> {
         const connections = await new OutpostsApi(DEFAULT_CONFIG).outpostsServiceConnectionsAllList(
-            await this.defaultEndpointConfig(),
+            {
+                ordering: this.order,
+                page: page,
+                pageSize: (await uiConfig()).pagination.perPage,
+                search: this.search || "",
+            },
         );
-        await Promise.all(
+        Promise.all(
             connections.results.map((connection) => {
                 return new OutpostsApi(DEFAULT_CONFIG)
                     .outpostsServiceConnectionsAllStateRetrieve({
@@ -133,11 +137,5 @@ export class OutpostServiceConnectionListPage extends TablePage<ServiceConnectio
 
     renderObjectCreate(): TemplateResult {
         return html`<ak-service-connection-wizard></ak-service-connection-wizard> `;
-    }
-}
-
-declare global {
-    interface HTMLElementTagNameMap {
-        "ak-outpost-service-connection-list": OutpostServiceConnectionListPage;
     }
 }

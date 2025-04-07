@@ -1,5 +1,5 @@
+import { getRelativeTime } from "@goauthentik/app/common/utils";
 import { EVENT_REFRESH, EVENT_THEME_CHANGE } from "@goauthentik/common/constants";
-import { getRelativeTime } from "@goauthentik/common/utils";
 import { AKElement } from "@goauthentik/elements/Base";
 import "@goauthentik/elements/EmptyState";
 import {
@@ -17,7 +17,7 @@ import { Legend, Tooltip } from "chart.js";
 import { BarController, DoughnutController, LineController } from "chart.js";
 import { ArcElement, BarElement } from "chart.js";
 import { LinearScale, TimeScale } from "chart.js";
-import "chartjs-adapter-date-fns";
+import "chartjs-adapter-moment";
 
 import { msg } from "@lit/localize";
 import { CSSResult, TemplateResult, css, html } from "lit";

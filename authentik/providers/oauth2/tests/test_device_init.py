@@ -3,7 +3,6 @@
 from urllib.parse import urlencode
 
 from django.urls import reverse
-from rest_framework.test import APIClient
 
 from authentik.core.models import Application, Group
 from authentik.core.tests.utils import create_test_admin_user, create_test_brand, create_test_flow
@@ -35,10 +34,7 @@ class TesOAuth2DeviceInit(OAuthTestCase):
         self.brand.flow_device_code = self.device_flow
         self.brand.save()
 
-        self.api_client = APIClient()
-        self.api_client.force_login(self.user)
-
-    def test_device_init_get(self):
+    def test_device_init(self):
         """Test device init"""
         res = self.client.get(reverse("authentik_providers_oauth2_root:device-login"))
         self.assertEqual(res.status_code, 302)
@@ -49,83 +45,7 @@ class TesOAuth2DeviceInit(OAuthTestCase):
                 kwargs={
                     "flow_slug": self.device_flow.slug,
                 },
-            )
-            + "?"
-            + urlencode({"inspector": "available"}),
-        )
-
-    def test_device_init_post(self):
-        """Test device init"""
-        res = self.api_client.get(reverse("authentik_providers_oauth2_root:device-login"))
-        self.assertEqual(res.status_code, 302)
-        self.assertEqual(
-            res.url,
-            reverse(
-                "authentik_core:if-flow",
-                kwargs={
-                    "flow_slug": self.device_flow.slug,
-                },
-            )
-            + "?"
-            + urlencode({"inspector": "available"}),
-        )
-        res = self.api_client.get(
-            reverse(
-                "authentik_api:flow-executor",
-                kwargs={
-                    "flow_slug": self.device_flow.slug,
-                },
             ),
-        )
-        self.assertEqual(res.status_code, 200)
-        self.assertJSONEqual(
-            res.content,
-            {
-                "component": "ak-provider-oauth2-device-code",
-                "flow_info": {
-                    "background": "/static/dist/assets/images/flow_background.jpg",
-                    "cancel_url": "/flows/-/cancel/",
-                    "layout": "stacked",
-                    "title": self.device_flow.title,
-                },
-            },
-        )
-
-        provider = OAuth2Provider.objects.create(
-            name=generate_id(),
-            authorization_flow=create_test_flow(),
-        )
-        Application.objects.create(name=generate_id(), slug=generate_id(), provider=provider)
-        token = DeviceToken.objects.create(
-            provider=provider,
-        )
-
-        res = self.api_client.post(
-            reverse(
-                "authentik_api:flow-executor",
-                kwargs={
-                    "flow_slug": self.device_flow.slug,
-                },
-            ),
-            data={
-                "component": "ak-provider-oauth2-device-code",
-                "code": token.user_code,
-            },
-        )
-        self.assertEqual(res.status_code, 200)
-        self.assertJSONEqual(
-            res.content,
-            {
-                "component": "xak-flow-redirect",
-                "to": reverse(
-                    "authentik_core:if-flow",
-                    kwargs={
-                        "flow_slug": provider.authorization_flow.slug,
-                    },
-                )
-                + "?"
-                + urlencode({"inspector": "available"}),
-            },
         )
 
     def test_no_flow(self):
@@ -156,7 +76,7 @@ class TesOAuth2DeviceInit(OAuthTestCase):
                 },
             )
             + "?"
-            + urlencode({QS_KEY_CODE: token.user_code, "inspector": "available"}),
+            + urlencode({QS_KEY_CODE: token.user_code}),
         )
 
     def test_device_init_denied(self):

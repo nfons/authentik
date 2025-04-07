@@ -1,4 +1,5 @@
 import { DEFAULT_CONFIG } from "@goauthentik/common/api/config";
+import { uiConfig } from "@goauthentik/common/ui/config";
 import "@goauthentik/components/ak-status-label";
 import "@goauthentik/elements/buttons/SpinnerButton";
 import { PaginatedResponse } from "@goauthentik/elements/table/Table";
@@ -31,10 +32,12 @@ export class GroupSelectModal extends TableModal<Group> {
         return super.styles.concat(PFBanner);
     }
 
-    async apiEndpoint(): Promise<PaginatedResponse<Group>> {
+    async apiEndpoint(page: number): Promise<PaginatedResponse<Group>> {
         return new CoreApi(DEFAULT_CONFIG).coreGroupsList({
-            ...(await this.defaultEndpointConfig()),
-            includeUsers: false,
+            ordering: this.order,
+            page: page,
+            pageSize: (await uiConfig()).pagination.perPage,
+            search: this.search || "",
         });
     }
 
@@ -97,11 +100,5 @@ export class GroupSelectModal extends TableModal<Group> {
                     ${msg("Cancel")}
                 </ak-spinner-button>
             </footer>`;
-    }
-}
-
-declare global {
-    interface HTMLElementTagNameMap {
-        "ak-user-group-select-table": GroupSelectModal;
     }
 }

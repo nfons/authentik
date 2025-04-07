@@ -1,8 +1,8 @@
 """RBAC models"""
 
+from typing import Optional
 from uuid import uuid4
 
-from django.contrib.auth.management import _get_all_permissions
 from django.db import models
 from django.db.transaction import atomic
 from django.utils.translation import gettext_lazy as _
@@ -10,24 +10,6 @@ from guardian.shortcuts import assign_perm
 from rest_framework.serializers import BaseSerializer
 
 from authentik.lib.models import SerializerModel
-from authentik.lib.utils.reflection import get_apps
-
-
-def get_permission_choices():
-    all_perms = []
-    for app in get_apps():
-        for model in app.get_models():
-            for perm, _desc in _get_all_permissions(model._meta):
-                all_perms.append((model, perm))
-    return sorted(
-        [
-            (
-                f"{model._meta.app_label}.{perm}",
-                f"{model._meta.app_label}.{perm}",
-            )
-            for model, perm in all_perms
-        ]
-    )
 
 
 class Role(SerializerModel):
@@ -49,7 +31,7 @@ class Role(SerializerModel):
     # name field has the same constraints as the group model
     name = models.TextField(max_length=150, unique=True)
 
-    def assign_permission(self, *perms: str, obj: models.Model | None = None):
+    def assign_permission(self, *perms: str, obj: Optional[models.Model] = None):
         """Assign permission to role, can handle multiple permissions,
         but when assigning multiple permissions to an object the permissions
         must all belong to the object given"""
@@ -86,10 +68,9 @@ class SystemPermission(models.Model):
         verbose_name_plural = _("System permissions")
         permissions = [
             ("view_system_info", _("Can view system info")),
+            ("view_system_tasks", _("Can view system tasks")),
+            ("run_system_tasks", _("Can run system tasks")),
             ("access_admin_interface", _("Can access admin interface")),
             ("view_system_settings", _("Can view system settings")),
             ("edit_system_settings", _("Can edit system settings")),
         ]
-
-    def __str__(self) -> str:
-        return "System Permission"

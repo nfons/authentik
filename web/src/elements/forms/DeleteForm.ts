@@ -146,9 +146,3 @@ export class DeleteForm extends ModalButton {
             </footer>`;
     }
 }
-
-declare global {
-    interface HTMLElementTagNameMap {
-        "ak-forms-delete": DeleteForm;
-    }
-}

@@ -7,7 +7,6 @@ import "@goauthentik/components/ak-radio-input";
 import "@goauthentik/components/ak-switch-input";
 import "@goauthentik/components/ak-text-input";
 import "@goauthentik/components/ak-textarea-input";
-import "@goauthentik/elements/Alert.js";
 import {
     CapabilitiesEnum,
     WithCapabilitiesConfig,
@@ -22,15 +21,28 @@ import "@goauthentik/elements/forms/SearchSelect";
 import "@patternfly/elements/pf-tooltip/pf-tooltip.js";
 
 import { msg } from "@lit/localize";
-import { TemplateResult, html, nothing } from "lit";
+import { TemplateResult, html } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
 import { ifDefined } from "lit/directives/if-defined.js";
 
-import { Application, CoreApi, Provider } from "@goauthentik/api";
+import { Application, CoreApi, PolicyEngineMode, Provider } from "@goauthentik/api";
 
-import { policyOptions } from "./PolicyOptions.js";
 import "./components/ak-backchannel-input";
 import "./components/ak-provider-search-input";
+
+export const policyOptions = [
+    {
+        label: "any",
+        value: PolicyEngineMode.Any,
+        default: true,
+        description: html`${msg("Any policy must match to grant access")}`,
+    },
+    {
+        label: "all",
+        value: PolicyEngineMode.All,
+        description: html`${msg("All policies must match to grant access")}`,
+    },
+];
 
 @customElement("ak-application-form")
 export class ApplicationForm extends WithCapabilitiesConfig(ModelForm<Application, string>) {
@@ -121,12 +133,7 @@ export class ApplicationForm extends WithCapabilitiesConfig(ModelForm<Applicatio
     }
 
     renderForm(): TemplateResult {
-        const alertMsg = msg(
-            "Using this form will only create an Application. In order to authenticate with the application, you will have to manually pair it with a Provider.",
-        );
-
         return html`<form class="pf-c-form pf-m-horizontal">
-            ${this.instance ? nothing : html`<ak-alert level="pf-m-info">${alertMsg}</ak-alert>`}
             <ak-text-input
                 name="name"
                 value=${ifDefined(this.instance?.name)}
@@ -140,7 +147,6 @@ export class ApplicationForm extends WithCapabilitiesConfig(ModelForm<Applicatio
                 label=${msg("Slug")}
                 required
                 help=${msg("Internal application name used in URLs.")}
-                inputHint="code"
             ></ak-text-input>
             <ak-text-input
                 name="group"
@@ -149,7 +155,6 @@ export class ApplicationForm extends WithCapabilitiesConfig(ModelForm<Applicatio
                 help=${msg(
                     "Optionally enter a group name. Applications with identical groups are shown grouped together.",
                 )}
-                inputHint="code"
             ></ak-text-input>
             <ak-provider-search-input
                 name="provider"
@@ -190,7 +195,6 @@ export class ApplicationForm extends WithCapabilitiesConfig(ModelForm<Applicatio
                         help=${msg(
                             "If left empty, authentik will try to extract the launch URL based on the selected provider.",
                         )}
-                        inputHint="code"
                     ></ak-text-input>
                     <ak-switch-input
                         name="openInNewTab"
@@ -238,11 +242,5 @@ export class ApplicationForm extends WithCapabilitiesConfig(ModelForm<Applicatio
                 </div>
             </ak-form-group>
         </form>`;
-    }
-}
-
-declare global {
-    interface HTMLElementTagNameMap {
-        "ak-application-form": ApplicationForm;
     }
 }

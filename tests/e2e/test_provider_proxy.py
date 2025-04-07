@@ -2,13 +2,14 @@
 
 from base64 import b64encode
 from dataclasses import asdict
-from json import loads
 from sys import platform
 from time import sleep
+from typing import Any, Optional
 from unittest.case import skip, skipUnless
 
 from channels.testing import ChannelsLiveServerTestCase
-from jwt import decode
+from docker.client import DockerClient, from_env
+from docker.models.containers import Container
 from selenium.webdriver.common.by import By
 
 from authentik.blueprints.tests import apply_blueprint, reconcile_app
@@ -24,26 +25,38 @@ from tests.e2e.utils import SeleniumTestCase, retry
 class TestProviderProxy(SeleniumTestCase):
     """Proxy and Outpost e2e tests"""
 
-    def setUp(self):
-        super().setUp()
-        self.run_container(
-            image="traefik/whoami:latest",
-            ports={
+    proxy_container: Container
+
+    def tearDown(self) -> None:
+        super().tearDown()
+        self.output_container_logs(self.proxy_container)
+        self.proxy_container.kill()
+
+    def get_container_specs(self) -> Optional[dict[str, Any]]:
+        return {
+            "image": "traefik/whoami:latest",
+            "detach": True,
+            "ports": {
                 "80": "80",
             },
-        )
+            "auto_remove": True,
+        }
 
-    def start_proxy(self, outpost: Outpost):
+    def start_proxy(self, outpost: Outpost) -> Container:
         """Start proxy container based on outpost created"""
-        self.run_container(
+        client: DockerClient = from_env()
+        container = client.containers.run(
             image=self.get_container_image("ghcr.io/goauthentik/dev-proxy"),
+            detach=True,
             ports={
                 "9000": "9000",
             },
             environment={
+                "AUTHENTIK_HOST": self.live_server_url,
                 "AUTHENTIK_TOKEN": outpost.token.key,
             },
         )
+        return container
 
     @retry()
     @apply_blueprint(
@@ -52,7 +65,6 @@ class TestProviderProxy(SeleniumTestCase):
     )
     @apply_blueprint(
         "default/flow-default-provider-authorization-implicit-consent.yaml",
-        "default/flow-default-provider-invalidation.yaml",
     )
     @apply_blueprint(
         "system/providers-oauth2.yaml",
@@ -70,7 +82,6 @@ class TestProviderProxy(SeleniumTestCase):
             authorization_flow=Flow.objects.get(
                 slug="default-provider-authorization-implicit-consent"
             ),
-            invalidation_flow=Flow.objects.get(slug="default-provider-invalidation-flow"),
             internal_host=f"http://{self.host}",
             external_host="http://localhost:9000",
         )
@@ -86,11 +97,11 @@ class TestProviderProxy(SeleniumTestCase):
         outpost.providers.add(proxy)
         outpost.build_user_permissions(outpost.user)
 
-        self.start_proxy(outpost)
+        self.proxy_container = self.start_proxy(outpost)
 
         # Wait until outpost healthcheck succeeds
         healthcheck_retries = 0
-        while healthcheck_retries < 50:  # noqa: PLR2004
+        while healthcheck_retries < 50:
             if len(outpost.state) > 0:
                 state = outpost.state[0]
                 if state.last_seen:
@@ -99,27 +110,18 @@ class TestProviderProxy(SeleniumTestCase):
             sleep(0.5)
         sleep(5)
 
-        self.driver.get("http://localhost:9000/api")
+        self.driver.get("http://localhost:9000")
         self.login()
         sleep(1)
 
         full_body_text = self.driver.find_element(By.CSS_SELECTOR, "pre").text
-        body = loads(full_body_text)
-
-        self.assertEqual(body["headers"]["X-Authentik-Username"], [self.user.username])
-        self.assertEqual(body["headers"]["X-Foo"], ["bar"])
-        raw_jwt: str = body["headers"]["X-Authentik-Jwt"][0]
-        jwt = decode(raw_jwt, options={"verify_signature": False})
-
-        self.assertIsNotNone(jwt["sid"])
-        self.assertIsNotNone(jwt["ak_proxy"])
+        self.assertIn(f"X-Authentik-Username: {self.user.username}", full_body_text)
+        self.assertIn("X-Foo: bar", full_body_text)
 
         self.driver.get("http://localhost:9000/outpost.goauthentik.io/sign_out")
         sleep(2)
-        flow_executor = self.get_shadow_root("ak-flow-executor")
-        session_end_stage = self.get_shadow_root("ak-stage-session-end", flow_executor)
-        title = session_end_stage.find_element(By.CSS_SELECTOR, ".pf-c-title.pf-m-3xl").text
-        self.assertIn("You've logged out of", title)
+        full_body_text = self.driver.find_element(By.CSS_SELECTOR, ".pf-c-title.pf-m-3xl").text
+        self.assertIn("You've logged out of", full_body_text)
 
     @retry()
     @apply_blueprint(
@@ -128,7 +130,6 @@ class TestProviderProxy(SeleniumTestCase):
     )
     @apply_blueprint(
         "default/flow-default-provider-authorization-implicit-consent.yaml",
-        "default/flow-default-provider-invalidation.yaml",
     )
     @apply_blueprint(
         "system/providers-oauth2.yaml",
@@ -148,7 +149,6 @@ class TestProviderProxy(SeleniumTestCase):
             authorization_flow=Flow.objects.get(
                 slug="default-provider-authorization-implicit-consent"
             ),
-            invalidation_flow=Flow.objects.get(slug="default-provider-invalidation-flow"),
             internal_host=f"http://{self.host}",
             external_host="http://localhost:9000",
             basic_auth_enabled=True,
@@ -167,11 +167,11 @@ class TestProviderProxy(SeleniumTestCase):
         outpost.providers.add(proxy)
         outpost.build_user_permissions(outpost.user)
 
-        self.start_proxy(outpost)
+        self.proxy_container = self.start_proxy(outpost)
 
         # Wait until outpost healthcheck succeeds
         healthcheck_retries = 0
-        while healthcheck_retries < 50:  # noqa: PLR2004
+        while healthcheck_retries < 50:
             if len(outpost.state) > 0:
                 state = outpost.state[0]
                 if state.last_seen:
@@ -180,23 +180,19 @@ class TestProviderProxy(SeleniumTestCase):
             sleep(0.5)
         sleep(5)
 
-        self.driver.get("http://localhost:9000/api")
+        self.driver.get("http://localhost:9000")
         self.login()
         sleep(1)
 
         full_body_text = self.driver.find_element(By.CSS_SELECTOR, "pre").text
-        body = loads(full_body_text)
-
-        self.assertEqual(body["headers"]["X-Authentik-Username"], [self.user.username])
+        self.assertIn(f"X-Authentik-Username: {self.user.username}", full_body_text)
         auth_header = b64encode(f"{cred}:{cred}".encode()).decode()
-        self.assertEqual(body["headers"]["Authorization"], [f"Basic {auth_header}"])
+        self.assertIn(f"Authorization: Basic {auth_header}", full_body_text)
 
         self.driver.get("http://localhost:9000/outpost.goauthentik.io/sign_out")
         sleep(2)
-        flow_executor = self.get_shadow_root("ak-flow-executor")
-        session_end_stage = self.get_shadow_root("ak-stage-session-end", flow_executor)
-        title = session_end_stage.find_element(By.CSS_SELECTOR, ".pf-c-title.pf-m-3xl").text
-        self.assertIn("You've logged out of", title)
+        full_body_text = self.driver.find_element(By.CSS_SELECTOR, ".pf-c-title.pf-m-3xl").text
+        self.assertIn("You've logged out of", full_body_text)
 
 
 # TODO: Fix flaky test
@@ -216,7 +212,7 @@ class TestProviderProxyConnect(ChannelsLiveServerTestCase):
     @reconcile_app("authentik_crypto")
     def test_proxy_connectivity(self):
         """Test proxy connectivity over websocket"""
-        outpost_connection_discovery()
+        outpost_connection_discovery()  # pylint: disable=no-value-for-parameter
         proxy: ProxyProvider = ProxyProvider.objects.create(
             name=generate_id(),
             authorization_flow=Flow.objects.get(
@@ -242,7 +238,7 @@ class TestProviderProxyConnect(ChannelsLiveServerTestCase):
 
         # Wait until outpost healthcheck succeeds
         healthcheck_retries = 0
-        while healthcheck_retries < 50:  # noqa: PLR2004
+        while healthcheck_retries < 50:
             if len(outpost.state) > 0:
                 state = outpost.state[0]
                 if state.last_seen and state.version:

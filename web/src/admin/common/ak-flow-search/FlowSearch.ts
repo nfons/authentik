@@ -7,7 +7,6 @@ import { CustomListenerElement } from "@goauthentik/elements/utils/eventEmitter"
 
 import { html } from "lit";
 import { property, query } from "lit/decorators.js";
-import { ifDefined } from "lit/directives/if-defined.js";
 
 import { FlowsApi, FlowsInstancesListDesignationEnum } from "@goauthentik/api";
 import type { Flow, FlowsInstancesListRequest } from "@goauthentik/api";
@@ -61,14 +60,6 @@ export class FlowSearch<T extends Flow> extends CustomListenerElement(AKElement)
     @query("ak-search-select")
     search!: SearchSelect<T>;
 
-    /**
-     * When specified and the object instance does not have a flow selected, auto-select the flow with the given slug.
-     *
-     * @attr
-     */
-    @property()
-    defaultFlowSlug?: string;
-
     @property({ type: String })
     name: string | null | undefined;
 
@@ -105,12 +96,9 @@ export class FlowSearch<T extends Flow> extends CustomListenerElement(AKElement)
      * use this method, but several have more complex needs, such as relating to the brand, or just
      * returning false.
      */
+
     selected(flow: Flow): boolean {
-        let selected = this.currentFlow === flow.pk;
-        if (!this.currentFlow && this.defaultFlowSlug && flow.slug === this.defaultFlowSlug) {
-            selected = true;
-        }
-        return selected;
+        return this.currentFlow === flow.pk;
     }
 
     connectedCallback() {
@@ -134,7 +122,7 @@ export class FlowSearch<T extends Flow> extends CustomListenerElement(AKElement)
                 .renderElement=${renderElement}
                 .renderDescription=${renderDescription}
                 .value=${getFlowValue}
-                name=${ifDefined(this.name ?? undefined)}
+                .name=${this.name}
                 @ak-change=${this.handleSearchUpdate}
                 ?blankable=${!this.required}
             >

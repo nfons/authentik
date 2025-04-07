@@ -1,40 +1,30 @@
 """SAML Source Serializer"""
 
+from django_filters.rest_framework import DjangoFilterBackend
+from rest_framework.filters import OrderingFilter, SearchFilter
 from rest_framework.viewsets import ModelViewSet
 
-from authentik.core.api.sources import (
-    GroupSourceConnectionSerializer,
-    GroupSourceConnectionViewSet,
-    UserSourceConnectionSerializer,
-    UserSourceConnectionViewSet,
-)
-from authentik.sources.saml.models import GroupSAMLSourceConnection, UserSAMLSourceConnection
+from authentik.api.authorization import OwnerFilter, OwnerSuperuserPermissions
+from authentik.core.api.sources import UserSourceConnectionSerializer
+from authentik.core.api.used_by import UsedByMixin
+from authentik.sources.saml.models import UserSAMLSourceConnection
 
 
 class UserSAMLSourceConnectionSerializer(UserSourceConnectionSerializer):
     """SAML Source Serializer"""
 
-    class Meta(UserSourceConnectionSerializer.Meta):
+    class Meta:
         model = UserSAMLSourceConnection
-        fields = UserSourceConnectionSerializer.Meta.fields + ["identifier"]
+        fields = ["pk", "user", "source", "identifier"]
 
 
-class UserSAMLSourceConnectionViewSet(UserSourceConnectionViewSet, ModelViewSet):
+class UserSAMLSourceConnectionViewSet(UsedByMixin, ModelViewSet):
     """Source Viewset"""
 
     queryset = UserSAMLSourceConnection.objects.all()
     serializer_class = UserSAMLSourceConnectionSerializer
-
-
-class GroupSAMLSourceConnectionSerializer(GroupSourceConnectionSerializer):
-    """OAuth Group-Source connection Serializer"""
-
-    class Meta(GroupSourceConnectionSerializer.Meta):
-        model = GroupSAMLSourceConnection
-
-
-class GroupSAMLSourceConnectionViewSet(GroupSourceConnectionViewSet):
-    """Group-source connection Viewset"""
-
-    queryset = GroupSAMLSourceConnection.objects.all()
-    serializer_class = GroupSAMLSourceConnectionSerializer
+    filterset_fields = ["source__slug"]
+    search_fields = ["source__slug"]
+    permission_classes = [OwnerSuperuserPermissions]
+    filter_backends = [OwnerFilter, DjangoFilterBackend, OrderingFilter, SearchFilter]
+    ordering = ["source__slug"]

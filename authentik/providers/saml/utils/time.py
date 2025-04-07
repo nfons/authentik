@@ -1,16 +1,13 @@
 """Time utilities"""
 
-from datetime import datetime, timedelta
+import datetime
+from typing import Optional
 
-from django.utils.timezone import now
 
-
-def get_time_string(delta: timedelta | datetime | None = None) -> str:
+def get_time_string(delta: Optional[datetime.timedelta] = None) -> str:
     """Get Data formatted in SAML format"""
     if delta is None:
-        delta = timedelta()
-    if isinstance(delta, timedelta):
-        final = now() + delta
-    else:
-        final = delta
+        delta = datetime.timedelta()
+    now = datetime.datetime.now()
+    final = now + delta
     return final.strftime("%Y-%m-%dT%H:%M:%SZ")

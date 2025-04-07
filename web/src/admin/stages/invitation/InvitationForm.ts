@@ -108,9 +108,3 @@ export class InvitationForm extends ModelForm<Invitation, string> {
             </ak-form-element-horizontal>`;
     }
 }
-
-declare global {
-    interface HTMLElementTagNameMap {
-        "ak-invitation-form": InvitationForm;
-    }
-}

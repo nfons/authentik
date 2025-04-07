@@ -1,12 +1,11 @@
 """Write stage logic"""
 
-from typing import Any
+from typing import Any, Optional
 
 from django.contrib.auth import update_session_auth_hash
 from django.db import transaction
 from django.db.utils import IntegrityError, InternalError
 from django.http import HttpRequest, HttpResponse
-from django.utils.functional import SimpleLazyObject
 from django.utils.translation import gettext as _
 from rest_framework.exceptions import ValidationError
 
@@ -17,7 +16,7 @@ from authentik.events.utils import sanitize_item
 from authentik.flows.planner import PLAN_CONTEXT_PENDING_USER
 from authentik.flows.stage import StageView
 from authentik.flows.views.executor import FlowExecutorView
-from authentik.lib.utils.dict import set_path_in_dict
+from authentik.lib.config import set_path_in_dict
 from authentik.stages.password import BACKEND_INBUILT
 from authentik.stages.password.stage import PLAN_CONTEXT_AUTHENTICATION_BACKEND
 from authentik.stages.prompt.stage import PLAN_CONTEXT_PROMPT
@@ -51,7 +50,7 @@ class UserWriteStageView(StageView):
             parts = parts[1:]
         set_path_in_dict(user.attributes, ".".join(parts), sanitize_item(value))
 
-    def ensure_user(self) -> tuple[User | None, bool]:
+    def ensure_user(self) -> tuple[Optional[User], bool]:
         """Ensure a user exists"""
         user_created = False
         path = self.executor.plan.context.get(
@@ -104,9 +103,7 @@ class UserWriteStageView(StageView):
         for key, value in data.items():
             setter_name = f"set_{key}"
             # Check if user has a setter for this key, like set_password
-            if key == "password":
-                user.set_password(value, request=self.request)
-            elif hasattr(user, setter_name):
+            if hasattr(user, setter_name):
                 setter = getattr(user, setter_name)
                 if callable(setter):
                     setter(value)
@@ -121,14 +118,6 @@ class UserWriteStageView(StageView):
                 UserWriteStageView.write_attribute(user, key, value)
             # User has this key already
             elif hasattr(user, key):
-                if isinstance(user, SimpleLazyObject):
-                    user._setup()
-                    user = user._wrapped
-                attr = getattr(type(user), key)
-                if isinstance(attr, property):
-                    if not attr.fset:
-                        self.logger.info("discarding key", key=key)
-                        continue
                 setattr(user, key, value)
             # If none of the cases above matched, we have an attribute that the user doesn't have,
             # has no setter for, is not a nested attributes value and as such is invalid

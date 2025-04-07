@@ -5,7 +5,7 @@ from requests_mock import Mocker
 
 from authentik.lib.generators import generate_id
 from authentik.sources.oauth.models import OAuthSource
-from authentik.sources.oauth.types.oidc import OpenIDConnectOAuth2Callback, OpenIDConnectType
+from authentik.sources.oauth.types.oidc import OpenIDConnectOAuth2Callback
 
 # https://connect2id.com/products/server/docs/api/userinfo
 OPENID_USER = {
@@ -34,9 +34,7 @@ class TestTypeOpenID(TestCase):
 
     def test_enroll_context(self):
         """Test OpenID Enrollment context"""
-        ak_context = OpenIDConnectType().get_base_user_properties(
-            source=self.source, info=OPENID_USER
-        )
+        ak_context = OpenIDConnectOAuth2Callback().get_user_enroll_context(OPENID_USER)
         self.assertEqual(ak_context["username"], OPENID_USER["nickname"])
         self.assertEqual(ak_context["email"], OPENID_USER["email"])
         self.assertEqual(ak_context["name"], OPENID_USER["name"])

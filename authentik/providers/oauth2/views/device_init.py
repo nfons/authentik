@@ -1,23 +1,24 @@
 """Device flow views"""
 
-from typing import Any
+from typing import Any, Optional
 
 from django.http import HttpRequest, HttpResponse
 from django.utils.translation import gettext as _
 from rest_framework.exceptions import ValidationError
-from rest_framework.fields import CharField
+from rest_framework.fields import CharField, IntegerField
 from structlog.stdlib import get_logger
 
 from authentik.brands.models import Brand
 from authentik.core.models import Application
-from authentik.flows.challenge import Challenge, ChallengeResponse
+from authentik.flows.challenge import Challenge, ChallengeResponse, ChallengeTypes
 from authentik.flows.exceptions import FlowNonApplicableException
 from authentik.flows.models import in_memory_stage
 from authentik.flows.planner import PLAN_CONTEXT_APPLICATION, PLAN_CONTEXT_SSO, FlowPlanner
 from authentik.flows.stage import ChallengeStageView
 from authentik.flows.views.executor import SESSION_KEY_PLAN
+from authentik.lib.utils.urls import redirect_with_qs
 from authentik.policies.views import PolicyAccessView
-from authentik.providers.oauth2.models import DeviceToken
+from authentik.providers.oauth2.models import DeviceToken, OAuth2Provider
 from authentik.providers.oauth2.views.device_finish import (
     PLAN_CONTEXT_DEVICE,
     OAuthDeviceCodeFinishStage,
@@ -30,6 +31,17 @@ from authentik.stages.consent.stage import (
 
 LOGGER = get_logger()
 QS_KEY_CODE = "code"  # nosec
+
+
+def get_application(provider: OAuth2Provider) -> Optional[Application]:
+    """Get application from provider"""
+    try:
+        app = provider.application
+        if not app:
+            return None
+        return app
+    except Application.DoesNotExist:
+        return None
 
 
 class CodeValidatorView(PolicyAccessView):
@@ -45,9 +57,6 @@ class CodeValidatorView(PolicyAccessView):
             raise Application.DoesNotExist
         self.provider = self.token.provider
         self.application = self.token.provider.application
-
-    def post(self, request: HttpRequest, *args, **kwargs):
-        return self.get(request, *args, **kwargs)
 
     def get(self, request: HttpRequest, *args, **kwargs):
         scope_descriptions = UserInfoView().get_scope_descriptions(self.token.scope, self.provider)
@@ -71,8 +80,13 @@ class CodeValidatorView(PolicyAccessView):
         except FlowNonApplicableException:
             LOGGER.warning("Flow not applicable to user")
             return None
-        plan.append_stage(in_memory_stage(OAuthDeviceCodeFinishStage))
-        return plan.to_redirect(self.request, self.token.provider.authorization_flow)
+        plan.insert_stage(in_memory_stage(OAuthDeviceCodeFinishStage))
+        request.session[SESSION_KEY_PLAN] = plan
+        return redirect_with_qs(
+            "authentik_core:if-flow",
+            request.GET,
+            flow_slug=self.token.provider.authorization_flow.slug,
+        )
 
 
 class DeviceEntryView(PolicyAccessView):
@@ -103,7 +117,11 @@ class DeviceEntryView(PolicyAccessView):
         plan.append_stage(in_memory_stage(OAuthDeviceCodeStage))
 
         self.request.session[SESSION_KEY_PLAN] = plan
-        return plan.to_redirect(self.request, device_flow)
+        return redirect_with_qs(
+            "authentik_core:if-flow",
+            self.request.GET,
+            flow_slug=device_flow.slug,
+        )
 
 
 class OAuthDeviceCodeChallenge(Challenge):
@@ -115,7 +133,7 @@ class OAuthDeviceCodeChallenge(Challenge):
 class OAuthDeviceCodeChallengeResponse(ChallengeResponse):
     """Response that includes the user-entered device code"""
 
-    code = CharField()
+    code = IntegerField()
     component = CharField(default="ak-provider-oauth2-device-code")
 
     def validate_code(self, code: int) -> HttpResponse | None:
@@ -127,13 +145,14 @@ class OAuthDeviceCodeChallengeResponse(ChallengeResponse):
 
 
 class OAuthDeviceCodeStage(ChallengeStageView):
-    """Flow challenge for users to enter device code"""
+    """Flow challenge for users to enter device codes"""
 
     response_class = OAuthDeviceCodeChallengeResponse
 
     def get_challenge(self, *args, **kwargs) -> Challenge:
         return OAuthDeviceCodeChallenge(
             data={
+                "type": ChallengeTypes.NATIVE.value,
                 "component": "ak-provider-oauth2-device-code",
             }
         )

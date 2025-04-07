@@ -31,22 +31,9 @@ export class VersionStatusCard extends AdminStatusCard<Version> {
                 message: html`${msg(str`${value.versionLatest} is available!`)}`,
             });
         }
-        if (value.outpostOutdated) {
-            return Promise.resolve<AdminStatus>({
-                icon: "fa fa-exclamation-triangle pf-m-warning",
-                message: html`${msg("An outpost is on an incorrect version!")}
-                    <a href="#/outpost/outposts">${msg("Check outposts.")}</a>`,
-            });
-        }
-        if (value.versionLatestValid) {
-            return Promise.resolve<AdminStatus>({
-                icon: "fa fa-check-circle pf-m-success",
-                message: html`${msg("Up-to-date!")}`,
-            });
-        }
         return Promise.resolve<AdminStatus>({
-            icon: "fa fa-question-circle",
-            message: html`${msg("Latest version unknown")}`,
+            icon: "fa fa-check-circle pf-m-success",
+            message: html`${msg("Up-to-date!")}`,
         });
     }
 
@@ -63,12 +50,6 @@ export class VersionStatusCard extends AdminStatusCard<Version> {
             text = this.value.buildHash?.substring(0, 7);
             link = `https://github.com/goauthentik/authentik/commit/${this.value.buildHash}`;
         }
-        return html`<a rel="noopener noreferrer" href=${link} target="_blank">${text}</a>`;
-    }
-}
-
-declare global {
-    interface HTMLElementTagNameMap {
-        "ak-admin-status-version": VersionStatusCard;
+        return html`<a href=${link} target="_blank">${text}</a>`;
     }
 }

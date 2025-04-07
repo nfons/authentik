@@ -1,7 +1,6 @@
+import { getRelativeTime } from "@goauthentik/app/common/utils";
 import { DEFAULT_CONFIG } from "@goauthentik/common/api/config";
-import { getRelativeTime } from "@goauthentik/common/utils";
-import "@goauthentik/elements/chips/Chip";
-import "@goauthentik/elements/chips/ChipGroup";
+import { uiConfig } from "@goauthentik/common/ui/config";
 import "@goauthentik/elements/forms/DeleteBulkForm";
 import { PaginatedResponse } from "@goauthentik/elements/table/Table";
 import { Table, TableColumn } from "@goauthentik/elements/table/Table";
@@ -17,10 +16,12 @@ export class UserConsentList extends Table<UserConsent> {
     @property({ type: Number })
     userId?: number;
 
-    async apiEndpoint(): Promise<PaginatedResponse<UserConsent>> {
+    async apiEndpoint(page: number): Promise<PaginatedResponse<UserConsent>> {
         return new CoreApi(DEFAULT_CONFIG).coreUserConsentList({
-            ...(await this.defaultEndpointConfig()),
             user: this.userId,
+            ordering: this.order,
+            page: page,
+            pageSize: (await uiConfig()).pagination.perPage,
         });
     }
 
@@ -65,19 +66,7 @@ export class UserConsentList extends Table<UserConsent> {
                 ? html`<div>${getRelativeTime(item.expires)}</div>
                       <small>${item.expires.toLocaleString()}</small>`
                 : msg("-")}`,
-            html`${item.permissions
-                ? html`<ak-chip-group>
-                      ${item.permissions.split(" ").map((perm) => {
-                          return html`<ak-chip .removable=${false}>${perm}</ak-chip>`;
-                      })}
-                  </ak-chip-group>`
-                : html`-`}`,
+            html`${item.permissions || "-"}`,
         ];
-    }
-}
-
-declare global {
-    interface HTMLElementTagNameMap {
-        "ak-user-consent-list": UserConsentList;
     }
 }

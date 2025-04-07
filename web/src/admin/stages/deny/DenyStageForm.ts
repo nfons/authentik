@@ -64,9 +64,3 @@ export class DenyStageForm extends BaseStageForm<DenyStage> {
         `;
     }
 }
-
-declare global {
-    interface HTMLElementTagNameMap {
-        "ak-stage-deny-form": DenyStageForm;
-    }
-}

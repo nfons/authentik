@@ -2,6 +2,7 @@
 
 from dataclasses import asdict
 
+from channels.exceptions import DenyConnection
 from channels.routing import URLRouter
 from channels.testing import WebsocketCommunicator
 from django.test import TransactionTestCase
@@ -36,8 +37,9 @@ class TestOutpostWS(TransactionTestCase):
         communicator = WebsocketCommunicator(
             URLRouter(websocket.websocket_urlpatterns), f"/ws/outpost/{self.outpost.pk}/"
         )
-        connected, _ = await communicator.connect()
-        self.assertFalse(connected)
+        with self.assertRaises(DenyConnection):
+            connected, _ = await communicator.connect()
+            self.assertFalse(connected)
 
     async def test_auth_valid(self):
         """Test auth with token"""

@@ -2,7 +2,7 @@ import { AKElement } from "@goauthentik/elements/Base";
 import { KeyUnknown } from "@goauthentik/elements/forms/Form";
 
 import { msg } from "@lit/localize";
-import { html, nothing } from "lit";
+import { TemplateResult, html } from "lit";
 import { property } from "lit/decorators.js";
 import { ifDefined } from "lit/directives/if-defined.js";
 
@@ -43,14 +43,8 @@ export interface PendingUserChallenge {
     pendingUserAvatar?: string;
 }
 
-export interface ResponseErrorsChallenge {
-    responseErrors?: {
-        [key: string]: Array<ErrorDetail>;
-    };
-}
-
 export class BaseStage<
-    Tin extends FlowInfoChallenge & PendingUserChallenge & ResponseErrorsChallenge,
+    Tin extends FlowInfoChallenge & PendingUserChallenge,
     Tout,
 > extends AKElement {
     host!: StageHost;
@@ -72,25 +66,18 @@ export class BaseStage<
         }
         return this.host?.submit(object as unknown as Tout).then((successful) => {
             if (successful) {
-                this.onSubmitSuccess();
-            } else {
-                this.onSubmitFailure();
+                this.cleanup();
             }
             return successful;
         });
     }
 
-    renderNonFieldErrors() {
-        const errors = this.challenge?.responseErrors || {};
-        if (!("non_field_errors" in errors)) {
-            return nothing;
-        }
-        const nonFieldErrors = errors["non_field_errors"];
-        if (!nonFieldErrors) {
-            return nothing;
+    renderNonFieldErrors(errors: ErrorDetail[]): TemplateResult {
+        if (!errors) {
+            return html``;
         }
         return html`<div class="pf-c-form__alert">
-            ${nonFieldErrors.map((err) => {
+            ${errors.map((err) => {
                 return html`<div class="pf-c-alert pf-m-inline pf-m-danger">
                     <div class="pf-c-alert__icon">
                         <i class="fas fa-exclamation-circle"></i>
@@ -101,9 +88,9 @@ export class BaseStage<
         </div>`;
     }
 
-    renderUserInfo() {
+    renderUserInfo(): TemplateResult {
         if (!this.challenge.pendingUser || !this.challenge.pendingUserAvatar) {
-            return nothing;
+            return html``;
         }
         return html`
             <ak-form-static
@@ -126,11 +113,7 @@ export class BaseStage<
         `;
     }
 
-    onSubmitSuccess(): void {
-        // Method that can be overridden by stages
-        return;
-    }
-    onSubmitFailure(): void {
+    cleanup(): void {
         // Method that can be overridden by stages
         return;
     }

@@ -32,7 +32,7 @@ class InvitationStage(Stage):
         return InvitationStageSerializer
 
     @property
-    def view(self) -> type[View]:
+    def type(self) -> type[View]:
         from authentik.stages.invitation.stage import InvitationStageView
 
         return InvitationStageView
@@ -79,9 +79,8 @@ class Invitation(SerializerModel, ExpiringModel):
         return InvitationSerializer
 
     def __str__(self):
-        return f"Invitation {str(self.invite_uuid)} created by {self.created_by_id}"
+        return f"Invitation {str(self.invite_uuid)} created by {self.created_by}"
 
     class Meta:
         verbose_name = _("Invitation")
         verbose_name_plural = _("Invitations")
-        indexes = ExpiringModel.Meta.indexes

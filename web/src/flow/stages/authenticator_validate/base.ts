@@ -1,8 +1,12 @@
+import {
+    BaseStage,
+    FlowInfoChallenge,
+    PendingUserChallenge,
+} from "@goauthentik/app/flow/stages/base";
 import { AuthenticatorValidateStage } from "@goauthentik/flow/stages/authenticator_validate/AuthenticatorValidateStage";
-import { BaseStage, FlowInfoChallenge, PendingUserChallenge } from "@goauthentik/flow/stages/base";
 
 import { msg } from "@lit/localize";
-import { CSSResult, css, html, nothing } from "lit";
+import { CSSResult, TemplateResult, css, html } from "lit";
 import { property } from "lit/decorators.js";
 
 import PFButton from "@patternfly/patternfly/components/Button/button.css";
@@ -48,9 +52,9 @@ export class BaseDeviceStage<
         return this.host?.submit(payload) || Promise.resolve();
     }
 
-    renderReturnToDevicePicker() {
+    renderReturnToDevicePicker(): TemplateResult {
         if (!this.showBackButton) {
-            return nothing;
+            return html``;
         }
         return html`<button
             class="pf-c-button pf-m-secondary pf-m-block"
@@ -59,7 +63,7 @@ export class BaseDeviceStage<
                 (this.host as AuthenticatorValidateStage).selectedDeviceChallenge = undefined;
             }}
         >
-            ${msg("Select another authentication method")}
+            ${msg("Return to device picker")}
         </button>`;
     }
 }

@@ -1,15 +1,11 @@
 import "@goauthentik/admin/groups/GroupForm";
 import "@goauthentik/admin/policies/PolicyBindingForm";
-import { PolicyBindingNotice } from "@goauthentik/admin/policies/PolicyBindingForm";
 import "@goauthentik/admin/policies/PolicyWizard";
-import {
-    PolicyBindingCheckTarget,
-    PolicyBindingCheckTargetToLabel,
-} from "@goauthentik/admin/policies/utils";
 import "@goauthentik/admin/users/UserForm";
 import { DEFAULT_CONFIG } from "@goauthentik/common/api/config";
-import { PFSize } from "@goauthentik/common/enums.js";
+import { uiConfig } from "@goauthentik/common/ui/config";
 import "@goauthentik/components/ak-status-label";
+import { PFSize } from "@goauthentik/elements/Spinner";
 import "@goauthentik/elements/Tabs";
 import "@goauthentik/elements/forms/DeleteBulkForm";
 import "@goauthentik/elements/forms/ModalForm";
@@ -18,7 +14,7 @@ import { PaginatedResponse } from "@goauthentik/elements/table/Table";
 import { Table, TableColumn } from "@goauthentik/elements/table/Table";
 
 import { msg, str } from "@lit/localize";
-import { TemplateResult, html, nothing } from "lit";
+import { TemplateResult, html } from "lit";
 import { customElement, property } from "lit/decorators.js";
 import { ifDefined } from "lit/directives/if-defined.js";
 
@@ -29,36 +25,25 @@ export class BoundPoliciesList extends Table<PolicyBinding> {
     @property()
     target?: string;
 
-    @property({ type: Array })
-    allowedTypes: PolicyBindingCheckTarget[] = [
-        PolicyBindingCheckTarget.policy,
-        PolicyBindingCheckTarget.group,
-        PolicyBindingCheckTarget.user,
-    ];
-
-    @property({ type: Array })
-    typeNotices: PolicyBindingNotice[] = [];
+    @property({ type: Boolean })
+    policyOnly = false;
 
     checkbox = true;
     clearOnRefresh = true;
 
-    order = "order";
-
-    get allowedTypesLabel(): string {
-        return this.allowedTypes.map((ct) => PolicyBindingCheckTargetToLabel(ct)).join(" / ");
-    }
-
-    async apiEndpoint(): Promise<PaginatedResponse<PolicyBinding>> {
+    async apiEndpoint(page: number): Promise<PaginatedResponse<PolicyBinding>> {
         return new PoliciesApi(DEFAULT_CONFIG).policiesBindingsList({
-            ...(await this.defaultEndpointConfig()),
             target: this.target || "",
+            ordering: "order",
+            page: page,
+            pageSize: (await uiConfig()).pagination.perPage,
         });
     }
 
     columns(): TableColumn[] {
         return [
             new TableColumn(msg("Order"), "order"),
-            new TableColumn(this.allowedTypesLabel),
+            new TableColumn(msg("Policy / User / Group")),
             new TableColumn(msg("Enabled"), "enabled"),
             new TableColumn(msg("Timeout"), "timeout"),
             new TableColumn(msg("Actions")),
@@ -137,7 +122,7 @@ export class BoundPoliciesList extends Table<PolicyBinding> {
                 return [
                     { key: msg("Order"), value: item.order.toString() },
                     {
-                        key: this.allowedTypesLabel,
+                        key: msg("Policy / User / Group"),
                         value: this.getPolicyUserGroupRowLabel(item),
                     },
                 ];
@@ -172,9 +157,8 @@ export class BoundPoliciesList extends Table<PolicyBinding> {
                     <ak-policy-binding-form
                         slot="form"
                         .instancePk=${item.pk}
-                        .allowedTypes=${this.allowedTypes}
-                        .typeNotices=${this.typeNotices}
                         targetPk=${ifDefined(this.target)}
+                        ?policyOnly=${this.policyOnly}
                     >
                     </ak-policy-binding-form>
                     <button slot="trigger" class="pf-c-button pf-m-secondary">
@@ -189,23 +173,17 @@ export class BoundPoliciesList extends Table<PolicyBinding> {
             html`<ak-empty-state header=${msg("No Policies bound.")} icon="pf-icon-module">
                 <div slot="body">${msg("No policies are currently bound to this object.")}</div>
                 <div slot="primary">
-                    <ak-policy-wizard
-                        createText=${msg("Create and bind Policy")}
-                        ?showBindingPage=${true}
-                        bindingTarget=${ifDefined(this.target)}
-                    ></ak-policy-wizard>
                     <ak-forms-modal size=${PFSize.Medium}>
                         <span slot="submit"> ${msg("Create")} </span>
                         <span slot="header"> ${msg("Create Binding")} </span>
                         <ak-policy-binding-form
                             slot="form"
                             targetPk=${ifDefined(this.target)}
-                            .allowedTypes=${this.allowedTypes}
-                            .typeNotices=${this.typeNotices}
+                            ?policyOnly=${this.policyOnly}
                         >
                         </ak-policy-binding-form>
                         <button slot="trigger" class="pf-c-button pf-m-primary">
-                            ${msg("Bind existing policy/group/user")}
+                            ${msg("Create Binding")}
                         </button>
                     </ak-forms-modal>
                 </div>
@@ -214,32 +192,23 @@ export class BoundPoliciesList extends Table<PolicyBinding> {
     }
 
     renderToolbar(): TemplateResult {
-        return html`${this.allowedTypes.includes(PolicyBindingCheckTarget.policy)
-                ? html`<ak-policy-wizard
-                      createText=${msg("Create and bind Policy")}
-                      ?showBindingPage=${true}
-                      bindingTarget=${ifDefined(this.target)}
-                  ></ak-policy-wizard>`
-                : nothing}
+        return html`<ak-policy-wizard
+                createText=${msg("Create and bind Policy")}
+                ?showBindingPage=${true}
+                bindingTarget=${ifDefined(this.target)}
+            ></ak-policy-wizard>
             <ak-forms-modal size=${PFSize.Medium}>
                 <span slot="submit"> ${msg("Create")} </span>
                 <span slot="header"> ${msg("Create Binding")} </span>
                 <ak-policy-binding-form
                     slot="form"
                     targetPk=${ifDefined(this.target)}
-                    .allowedTypes=${this.allowedTypes}
-                    .typeNotices=${this.typeNotices}
+                    ?policyOnly=${this.policyOnly}
                 >
                 </ak-policy-binding-form>
                 <button slot="trigger" class="pf-c-button pf-m-primary">
-                    ${msg(str`Bind existing ${this.allowedTypesLabel}`)}
+                    ${msg("Bind existing policy")}
                 </button>
             </ak-forms-modal> `;
-    }
-}
-
-declare global {
-    interface HTMLElementTagNameMap {
-        "ak-bound-policies-list": BoundPoliciesList;
     }
 }

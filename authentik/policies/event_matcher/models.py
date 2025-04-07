@@ -102,13 +102,13 @@ class EventMatcherPolicy(Policy):
             result = checker(request, event)
             if result is None:
                 continue
-            LOGGER.debug(
+            LOGGER.info(
                 "Event matcher check result",
                 checker=checker.__name__,
                 result=result,
             )
             matches.append(result)
-        passing = all(x.passing for x in matches)
+        passing = any(x.passing for x in matches)
         messages = chain(*[x.messages for x in matches])
         result = PolicyResult(passing, *messages)
         result.source_results = matches

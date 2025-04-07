@@ -7,10 +7,7 @@ from requests_mock import Mocker
 
 from authentik.lib.generators import generate_id
 from authentik.sources.oauth.models import OAuthSource
-from authentik.sources.oauth.types.github import (
-    GitHubOAuth2Callback,
-    GitHubType,
-)
+from authentik.sources.oauth.types.github import GitHubOAuth2Callback
 
 # https://developer.github.com/v3/users/#get-the-authenticated-user
 GITHUB_USER = {
@@ -69,9 +66,7 @@ class TestTypeGitHub(TestCase):
 
     def test_enroll_context(self):
         """Test GitHub Enrollment context"""
-        ak_context = GitHubType().get_base_user_properties(
-            source=self.source, info=GITHUB_USER, client=None, token={}
-        )
+        ak_context = GitHubOAuth2Callback().get_user_enroll_context(GITHUB_USER)
         self.assertEqual(ak_context["username"], GITHUB_USER["login"])
         self.assertEqual(ak_context["email"], GITHUB_USER["email"])
         self.assertEqual(ak_context["name"], GITHUB_USER["name"])
@@ -91,18 +86,14 @@ class TestTypeGitHub(TestCase):
                     }
                 ],
             )
-            token = {
-                "access_token": generate_id(),
-                "token_type": generate_id(),
-            }
-            callback = GitHubOAuth2Callback(
+            ak_context = GitHubOAuth2Callback(
                 source=self.source,
                 request=self.factory.get("/"),
-                token=token,
-            )
-            ak_context = GitHubType().get_base_user_properties(
-                source=self.source, info=user, client=callback.get_client(self.source), token=token
-            )
+                token={
+                    "access_token": generate_id(),
+                    "token_type": generate_id(),
+                },
+            ).get_user_enroll_context(user)
         self.assertEqual(ak_context["username"], GITHUB_USER["login"])
         self.assertEqual(ak_context["email"], email)
         self.assertEqual(ak_context["name"], GITHUB_USER["name"])

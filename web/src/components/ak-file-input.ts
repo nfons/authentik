@@ -64,9 +64,3 @@ export class AkFileInput extends AKElement {
         </ak-form-element-horizontal>`;
     }
 }
-
-declare global {
-    interface HTMLElementTagNameMap {
-        "ak-file-input": AkFileInput;
-    }
-}

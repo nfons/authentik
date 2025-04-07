@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING, Optional, TypedDict
 from django.http import HttpRequest
 from geoip2.errors import GeoIP2Error
 from geoip2.models import ASN
-from sentry_sdk import start_span
+from sentry_sdk import Hub
 
 from authentik.events.context_processors.mmdb import MMDBContextProcessor
 from authentik.lib.config import CONFIG
@@ -46,11 +46,11 @@ class ASNContextProcessor(MMDBContextProcessor):
             "asn": self.asn_dict(ClientIPMiddleware.get_client_ip(request)),
         }
 
-    def asn(self, ip_address: str) -> ASN | None:
+    def asn(self, ip_address: str) -> Optional[ASN]:
         """Wrapper for Reader.asn"""
-        with start_span(
+        with Hub.current.start_span(
             op="authentik.events.asn.asn",
-            name=ip_address,
+            description=ip_address,
         ):
             if not self.configured():
                 return None
@@ -71,7 +71,7 @@ class ASNContextProcessor(MMDBContextProcessor):
         }
         return asn_dict
 
-    def asn_dict(self, ip_address: str) -> ASNDict | None:
+    def asn_dict(self, ip_address: str) -> Optional[ASNDict]:
         """Wrapper for self.asn that returns a dict"""
         asn = self.asn(ip_address)
         if not asn:

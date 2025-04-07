@@ -4,7 +4,7 @@ from django.urls import reverse
 from guardian.shortcuts import assign_perm
 from rest_framework.test import APITestCase
 
-from authentik.core.models import Group, User, UserTypes
+from authentik.core.models import Group, UserTypes
 from authentik.core.tests.utils import create_test_admin_user, create_test_user
 from authentik.lib.generators import generate_id
 from authentik.rbac.api.rbac_assigned_by_users import UserAssignedObjectPermissionSerializer
@@ -26,7 +26,6 @@ class TestRBACUserAPI(APITestCase):
 
     def test_filter_assigned(self):
         """Test UserAssignedPermissionViewSet's filters"""
-        User.objects.filter(username="akadmin").delete()
         inv = Invitation.objects.create(
             name=generate_id(),
             created_by=self.superuser,
@@ -79,7 +78,7 @@ class TestRBACUserAPI(APITestCase):
                 "permissions": ["authentik_stages_invitation.view_invitation"],
             },
         )
-        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res.status_code, 204)
         self.assertTrue(self.user.has_perm("authentik_stages_invitation.view_invitation"))
 
     def test_assign_global_internal_sa(self):
@@ -121,7 +120,7 @@ class TestRBACUserAPI(APITestCase):
                 "object_pk": str(inv.pk),
             },
         )
-        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res.status_code, 204)
         self.assertTrue(
             self.user.has_perm(
                 "authentik_stages_invitation.view_invitation",

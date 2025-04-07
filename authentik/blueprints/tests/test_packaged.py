@@ -1,7 +1,7 @@
 """test packaged blueprints"""
 
-from collections.abc import Callable
 from pathlib import Path
+from typing import Callable
 
 from django.test import TransactionTestCase
 
@@ -27,8 +27,7 @@ def blueprint_tester(file_name: Path) -> Callable:
         base = Path("blueprints/")
         rel_path = Path(file_name).relative_to(base)
         importer = Importer.from_string(BlueprintInstance(path=str(rel_path)).retrieve())
-        validation, logs = importer.validate()
-        self.assertTrue(validation, logs)
+        self.assertTrue(importer.validate()[0])
         self.assertTrue(importer.apply())
 
     return tester

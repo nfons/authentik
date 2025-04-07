@@ -8,6 +8,7 @@ from django.views import View
 from authentik.core.models import Application
 from authentik.flows.challenge import (
     ChallengeResponse,
+    ChallengeTypes,
     HttpChallengeResponse,
     RedirectChallenge,
 )
@@ -17,8 +18,10 @@ from authentik.flows.planner import PLAN_CONTEXT_APPLICATION, FlowPlanner
 from authentik.flows.stage import ChallengeStageView
 from authentik.flows.views.executor import (
     SESSION_KEY_APPLICATION_PRE,
+    SESSION_KEY_PLAN,
     ToDefaultFlow,
 )
+from authentik.lib.utils.urls import redirect_with_qs
 from authentik.stages.consent.stage import (
     PLAN_CONTEXT_CONSENT_HEADER,
     PLAN_CONTEXT_CONSENT_PERMISSIONS,
@@ -54,9 +57,10 @@ class RedirectToAppLaunch(View):
                 },
             )
         except FlowNonApplicableException:
-            raise Http404 from None
-        plan.append_stage(in_memory_stage(RedirectToAppStage))
-        return plan.to_redirect(request, flow)
+            raise Http404
+        plan.insert_stage(in_memory_stage(RedirectToAppStage))
+        request.session[SESSION_KEY_PLAN] = plan
+        return redirect_with_qs("authentik_core:if-flow", request.GET, flow_slug=flow.slug)
 
 
 class RedirectToAppStage(ChallengeStageView):
@@ -70,6 +74,7 @@ class RedirectToAppStage(ChallengeStageView):
             raise Http404
         return RedirectChallenge(
             instance={
+                "type": ChallengeTypes.REDIRECT.value,
                 "to": launch,
             }
         )

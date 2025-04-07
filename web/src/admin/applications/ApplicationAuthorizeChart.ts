@@ -44,9 +44,3 @@ export class ApplicationAuthorizeChart extends AKChart<Coordinate[]> {
         };
     }
 }
-
-declare global {
-    interface HTMLElementTagNameMap {
-        "ak-charts-application-authorize": ApplicationAuthorizeChart;
-    }
-}

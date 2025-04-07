@@ -2,9 +2,11 @@
 
 from dataclasses import InitVar, dataclass, field
 from datetime import timedelta
+from hashlib import sha256
 from json import dumps
 from re import error as RegexError
 from re import fullmatch
+from typing import Optional
 from urllib.parse import parse_qs, urlencode, urlparse, urlsplit, urlunsplit
 from uuid import uuid4
 
@@ -15,22 +17,25 @@ from django.utils import timezone
 from django.utils.translation import gettext as _
 from structlog.stdlib import get_logger
 
-from authentik.core.models import Application, AuthenticatedSession
+from authentik.core.models import Application
 from authentik.events.models import Event, EventAction
 from authentik.events.signals import get_login_event
 from authentik.flows.challenge import (
     PLAN_CONTEXT_TITLE,
     AutosubmitChallenge,
+    ChallengeTypes,
     HttpChallengeResponse,
 )
 from authentik.flows.exceptions import FlowNonApplicableException
 from authentik.flows.models import in_memory_stage
 from authentik.flows.planner import PLAN_CONTEXT_APPLICATION, PLAN_CONTEXT_SSO, FlowPlanner
 from authentik.flows.stage import StageView
+from authentik.flows.views.executor import SESSION_KEY_PLAN
 from authentik.lib.utils.time import timedelta_from_string
+from authentik.lib.utils.urls import redirect_with_qs
 from authentik.lib.views import bad_request_message
 from authentik.policies.types import PolicyRequest
-from authentik.policies.views import BufferedPolicyAccessView, RequestValidationError
+from authentik.policies.views import PolicyAccessView, RequestValidationError
 from authentik.providers.oauth2.constants import (
     PKCE_METHOD_PLAIN,
     PKCE_METHOD_S256,
@@ -54,8 +59,6 @@ from authentik.providers.oauth2.models import (
     AuthorizationCode,
     GrantTypes,
     OAuth2Provider,
-    RedirectURI,
-    RedirectURIMatchingMode,
     ResponseMode,
     ResponseTypes,
     ScopeMapping,
@@ -78,27 +81,28 @@ FORBIDDEN_URI_SCHEMES = {"javascript", "data", "vbscript"}
 
 
 @dataclass(slots=True)
+# pylint: disable=too-many-instance-attributes
 class OAuthAuthorizationParams:
     """Parameters required to authorize an OAuth Client"""
 
     client_id: str
     redirect_uri: str
     response_type: str
-    response_mode: str | None
+    response_mode: Optional[str]
     scope: set[str]
     state: str
-    nonce: str | None
+    nonce: Optional[str]
     prompt: set[str]
     grant_type: str
 
     provider: OAuth2Provider = field(default_factory=OAuth2Provider)
 
-    request: str | None = None
+    request: Optional[str] = None
 
-    max_age: int | None = None
+    max_age: Optional[int] = None
 
-    code_challenge: str | None = None
-    code_challenge_method: str | None = None
+    code_challenge: Optional[str] = None
+    code_challenge_method: Optional[str] = None
 
     github_compat: InitVar[bool] = False
 
@@ -187,39 +191,40 @@ class OAuthAuthorizationParams:
 
     def check_redirect_uri(self):
         """Redirect URI validation."""
-        allowed_redirect_urls = self.provider.redirect_uris
+        allowed_redirect_urls = self.provider.redirect_uris.split()
         if not self.redirect_uri:
             LOGGER.warning("Missing redirect uri.")
             raise RedirectUriError("", allowed_redirect_urls)
 
-        if len(allowed_redirect_urls) < 1:
+        if self.provider.redirect_uris == "":
             LOGGER.info("Setting redirect for blank redirect_uris", redirect=self.redirect_uri)
-            self.provider.redirect_uris = [
-                RedirectURI(RedirectURIMatchingMode.STRICT, self.redirect_uri)
-            ]
+            self.provider.redirect_uris = self.redirect_uri
             self.provider.save()
-            allowed_redirect_urls = self.provider.redirect_uris
+            allowed_redirect_urls = self.provider.redirect_uris.split()
 
-        match_found = False
-        for allowed in allowed_redirect_urls:
-            if allowed.matching_mode == RedirectURIMatchingMode.STRICT:
-                if self.redirect_uri == allowed.url:
-                    match_found = True
-                    break
-            if allowed.matching_mode == RedirectURIMatchingMode.REGEX:
-                try:
-                    if fullmatch(allowed.url, self.redirect_uri):
-                        match_found = True
-                        break
-                except RegexError as exc:
-                    LOGGER.warning(
-                        "Failed to parse regular expression",
-                        exc=exc,
-                        url=allowed.url,
-                        provider=self.provider,
-                    )
-        if not match_found:
-            raise RedirectUriError(self.redirect_uri, allowed_redirect_urls)
+        if self.provider.redirect_uris == "*":
+            LOGGER.info("Converting redirect_uris to regex", redirect=self.redirect_uri)
+            self.provider.redirect_uris = ".*"
+            self.provider.save()
+            allowed_redirect_urls = self.provider.redirect_uris.split()
+
+        try:
+            if not any(fullmatch(x, self.redirect_uri) for x in allowed_redirect_urls):
+                LOGGER.warning(
+                    "Invalid redirect uri (regex comparison)",
+                    redirect_uri_given=self.redirect_uri,
+                    redirect_uri_expected=allowed_redirect_urls,
+                )
+                raise RedirectUriError(self.redirect_uri, allowed_redirect_urls)
+        except RegexError as exc:
+            LOGGER.info("Failed to parse regular expression, checking directly", exc=exc)
+            if not any(x == self.redirect_uri for x in allowed_redirect_urls):
+                LOGGER.warning(
+                    "Invalid redirect uri (strict comparison)",
+                    redirect_uri_given=self.redirect_uri,
+                    redirect_uri_expected=allowed_redirect_urls,
+                )
+                raise RedirectUriError(self.redirect_uri, allowed_redirect_urls)
         # Check against forbidden schemes
         if urlparse(self.redirect_uri).scheme in FORBIDDEN_URI_SCHEMES:
             raise RedirectUriError(self.redirect_uri, allowed_redirect_urls)
@@ -254,10 +259,10 @@ class OAuthAuthorizationParams:
             raise AuthorizeError(self.redirect_uri, "invalid_scope", self.grant_type, self.state)
         if SCOPE_OFFLINE_ACCESS in self.scope:
             # https://openid.net/specs/openid-connect-core-1_0.html#OfflineAccess
-            # Don't explicitly request consent with offline_access, as the spec allows for
-            # "other conditions for processing the request permitting offline access to the
-            # requested resources are in place"
-            # which we interpret as "the admin picks an authorization flow with or without consent"
+            if PROMPT_CONSENT not in self.prompt:
+                # Instead of ignoring the `offline_access` scope when `prompt`
+                # isn't set to `consent`, we set override it ourselves
+                self.prompt.add(PROMPT_CONSENT)
             if self.response_type not in [
                 ResponseTypes.CODE,
                 ResponseTypes.CODE_TOKEN,
@@ -316,9 +321,7 @@ class OAuthAuthorizationParams:
             expires=now + timedelta_from_string(self.provider.access_code_validity),
             scope=self.scope,
             nonce=self.nonce,
-            session=AuthenticatedSession.objects.filter(
-                session_key=request.session.session_key
-            ).first(),
+            session_id=sha256(request.session.session_key.encode("ascii")).hexdigest(),
         )
 
         if self.code_challenge and self.code_challenge_method:
@@ -328,7 +331,7 @@ class OAuthAuthorizationParams:
         return code
 
 
-class AuthorizationFlowInitView(BufferedPolicyAccessView):
+class AuthorizationFlowInitView(PolicyAccessView):
     """OAuth2 Flow initializer, checks access to application and starts flow"""
 
     params: OAuthAuthorizationParams
@@ -348,14 +351,14 @@ class AuthorizationFlowInitView(BufferedPolicyAccessView):
             )
         except AuthorizeError as error:
             LOGGER.warning(error.description, redirect_uri=error.redirect_uri)
-            raise RequestValidationError(error.get_response(self.request)) from None
+            raise RequestValidationError(error.get_response(self.request))
         except OAuth2Error as error:
             LOGGER.warning(error.description)
             raise RequestValidationError(
                 bad_request_message(self.request, error.description, title=error.error)
-            ) from None
+            )
         except OAuth2Provider.DoesNotExist:
-            raise Http404 from None
+            raise Http404
         if PROMPT_NONE in self.params.prompt and not self.request.user.is_authenticated:
             # When "prompt" is set to "none" but the user is not logged in, show an error message
             error = AuthorizeError(
@@ -452,16 +455,11 @@ class AuthorizationFlowInitView(BufferedPolicyAccessView):
 
         plan.append_stage(in_memory_stage(OAuthFulfillmentStage))
 
-        return plan.to_redirect(
-            self.request,
-            self.provider.authorization_flow,
-            # We can only skip the flow executor and directly go to the final redirect URL if
-            #  we can submit the data to the RP via URL
-            allowed_silent_types=(
-                [OAuthFulfillmentStage]
-                if self.params.response_mode in [ResponseMode.QUERY, ResponseMode.FRAGMENT]
-                else []
-            ),
+        self.request.session[SESSION_KEY_PLAN] = plan
+        return redirect_with_qs(
+            "authentik_core:if-flow",
+            self.request.GET,
+            flow_slug=self.provider.authorization_flow.slug,
         )
 
 
@@ -488,10 +486,11 @@ class OAuthFulfillmentStage(StageView):
 
             challenge = AutosubmitChallenge(
                 data={
+                    "type": ChallengeTypes.NATIVE.value,
                     "component": "ak-stage-autosubmit",
                     "title": self.executor.plan.context.get(
                         PLAN_CONTEXT_TITLE,
-                        _("Redirecting to {app}...".format_map({"app": self.application.name})),
+                        _("Redirecting to %(app)s..." % {"app": self.application.name}),
                     ),
                     "url": self.params.redirect_uri,
                     "attrs": query_params,
@@ -499,11 +498,11 @@ class OAuthFulfillmentStage(StageView):
             )
 
             challenge.is_valid()
-            self.executor.stage_ok()
+
             return HttpChallengeResponse(
                 challenge=challenge,
             )
-        self.executor.stage_ok()
+
         return HttpResponseRedirectScheme(uri, allowed_schemes=[parsed.scheme])
 
     def post(self, request: HttpRequest, *args, **kwargs) -> HttpResponse:
@@ -537,7 +536,7 @@ class OAuthFulfillmentStage(StageView):
         except (ClientIdError, RedirectUriError) as error:
             error.to_event(application=self.application).from_http(request)
             self.executor.stage_invalid()
-
+            # pylint: disable=no-member
             return bad_request_message(request, error.description, title=error.error)
         except AuthorizeError as error:
             error.to_event(application=self.application).from_http(request)
@@ -600,9 +599,9 @@ class OAuthFulfillmentStage(StageView):
                 "server_error",
                 self.params.grant_type,
                 self.params.state,
-            ) from None
+            )
 
-    def create_implicit_response(self, code: AuthorizationCode | None) -> dict:
+    def create_implicit_response(self, code: Optional[AuthorizationCode]) -> dict:
         """Create implicit response's URL Fragment dictionary"""
         query_fragment = {}
         auth_event = get_login_event(self.request)
@@ -615,9 +614,7 @@ class OAuthFulfillmentStage(StageView):
             expires=access_token_expiry,
             provider=self.provider,
             auth_time=auth_event.created if auth_event else now,
-            session=AuthenticatedSession.objects.filter(
-                session_key=self.request.session.session_key
-            ).first(),
+            session_id=sha256(self.request.session.session_key.encode("ascii")).hexdigest(),
         )
 
         id_token = IDToken.new(self.provider, token, self.request)

@@ -3,13 +3,14 @@ import "@goauthentik/admin/outposts/OutpostDeploymentModal";
 import "@goauthentik/admin/outposts/OutpostForm";
 import "@goauthentik/admin/outposts/OutpostHealth";
 import "@goauthentik/admin/outposts/OutpostHealthSimple";
-import "@goauthentik/admin/rbac/ObjectPermissionModal";
 import { DEFAULT_CONFIG } from "@goauthentik/common/api/config";
-import { PFSize } from "@goauthentik/common/enums.js";
+import { uiConfig } from "@goauthentik/common/ui/config";
 import { PFColor } from "@goauthentik/elements/Label";
+import { PFSize } from "@goauthentik/elements/Spinner";
 import "@goauthentik/elements/buttons/SpinnerButton";
 import "@goauthentik/elements/forms/DeleteBulkForm";
 import "@goauthentik/elements/forms/ModalForm";
+import "@goauthentik/elements/rbac/ObjectPermissionModal";
 import { PaginatedResponse } from "@goauthentik/elements/table/Table";
 import { TableColumn } from "@goauthentik/elements/table/Table";
 import { TablePage } from "@goauthentik/elements/table/TablePage";
@@ -66,11 +67,14 @@ export class OutpostListPage extends TablePage<Outpost> {
         return true;
     }
 
-    async apiEndpoint(): Promise<PaginatedResponse<Outpost>> {
-        const outposts = await new OutpostsApi(DEFAULT_CONFIG).outpostsInstancesList(
-            await this.defaultEndpointConfig(),
-        );
-        await Promise.all(
+    async apiEndpoint(page: number): Promise<PaginatedResponse<Outpost>> {
+        const outposts = await new OutpostsApi(DEFAULT_CONFIG).outpostsInstancesList({
+            ordering: this.order,
+            page: page,
+            pageSize: (await uiConfig()).pagination.perPage,
+            search: this.search || "",
+        });
+        Promise.all(
             outposts.results.map((outpost) => {
                 return new OutpostsApi(DEFAULT_CONFIG)
                     .outpostsInstancesHealthList({
@@ -148,7 +152,7 @@ export class OutpostListPage extends TablePage<Outpost> {
                     </button>
                 </ak-forms-modal>
                 <ak-rbac-object-permission-modal
-                    model=${RbacPermissionsAssignedByUsersListModelEnum.AuthentikOutpostsOutpost}
+                    model=${RbacPermissionsAssignedByUsersListModelEnum.OutpostsOutpost}
                     objectPk=${item.pk}
                 >
                 </ak-rbac-object-permission-modal>
@@ -216,11 +220,5 @@ export class OutpostListPage extends TablePage<Outpost> {
                 <button slot="trigger" class="pf-c-button pf-m-primary">${msg("Create")}</button>
             </ak-forms-modal>
         `;
-    }
-}
-
-declare global {
-    interface HTMLElementTagNameMap {
-        "ak-outpost-list": OutpostListPage;
     }
 }

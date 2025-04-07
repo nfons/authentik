@@ -113,13 +113,11 @@ export class EventMatcherPolicyForm extends BasePolicyForm<EventMatcherPolicy> {
                         <input
                             type="text"
                             value="${ifDefined(this.instance?.clientIp || "")}"
-                            class="pf-c-form-control pf-m-monospace"
-                            autocomplete="off"
-                            spellcheck="false"
+                            class="pf-c-form-control"
                         />
                         <p class="pf-c-form__helper-text">
                             ${msg(
-                                "Matches Event's Client IP (strict matching, for network matching use an Expression Policy).",
+                                "Matches Event's Client IP (strict matching, for network matching use an Expression Policy.",
                             )}
                         </p>
                     </ak-form-element-horizontal>
@@ -181,11 +179,5 @@ export class EventMatcherPolicyForm extends BasePolicyForm<EventMatcherPolicy> {
                     </ak-form-element-horizontal>
                 </div>
             </ak-form-group>`;
-    }
-}
-
-declare global {
-    interface HTMLElementTagNameMap {
-        "ak-policy-event-matcher-form": EventMatcherPolicyForm;
     }
 }

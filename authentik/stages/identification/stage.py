@@ -3,16 +3,16 @@
 from dataclasses import asdict
 from random import SystemRandom
 from time import sleep
-from typing import Any
+from typing import Any, Optional
 
 from django.core.exceptions import PermissionDenied
 from django.db.models import Q
 from django.http import HttpResponse
 from django.utils.translation import gettext as _
 from drf_spectacular.utils import PolymorphicProxySerializer, extend_schema_field
-from rest_framework.fields import BooleanField, CharField, ChoiceField, DictField, ListField
+from rest_framework.fields import BooleanField, CharField, DictField, ListField
 from rest_framework.serializers import ValidationError
-from sentry_sdk import start_span
+from sentry_sdk.hub import Hub
 
 from authentik.core.api.utils import PassiveSerializer
 from authentik.core.models import Application, Source, User
@@ -20,39 +20,30 @@ from authentik.events.utils import sanitize_item
 from authentik.flows.challenge import (
     Challenge,
     ChallengeResponse,
+    ChallengeTypes,
     RedirectChallenge,
 )
 from authentik.flows.models import FlowDesignation
 from authentik.flows.planner import PLAN_CONTEXT_PENDING_USER
 from authentik.flows.stage import PLAN_CONTEXT_PENDING_USER_IDENTIFIER, ChallengeStageView
 from authentik.flows.views.executor import SESSION_KEY_APPLICATION_PRE, SESSION_KEY_GET
-from authentik.lib.avatars import DEFAULT_AVATAR
-from authentik.lib.utils.reflection import all_subclasses
 from authentik.lib.utils.urls import reverse_with_qs
 from authentik.root.middleware import ClientIPMiddleware
-from authentik.stages.captcha.stage import CaptchaChallenge, verify_captcha_token
+from authentik.sources.oauth.types.apple import AppleLoginChallenge
+from authentik.sources.plex.models import PlexAuthenticationChallenge
 from authentik.stages.identification.models import IdentificationStage
 from authentik.stages.identification.signals import identification_failed
 from authentik.stages.password.stage import authenticate
 
 
-class LoginChallengeMixin:
-    """Base login challenge for Identification stage"""
-
-
-def get_login_serializers():
-    mapping = {
-        RedirectChallenge().fields["component"].default: RedirectChallenge,
-    }
-    for cls in all_subclasses(LoginChallengeMixin):
-        mapping[cls().fields["component"].default] = cls
-    return mapping
-
-
 @extend_schema_field(
     PolymorphicProxySerializer(
         component_name="LoginChallengeTypes",
-        serializers=get_login_serializers,
+        serializers={
+            RedirectChallenge().fields["component"].default: RedirectChallenge,
+            PlexAuthenticationChallenge().fields["component"].default: PlexAuthenticationChallenge,
+            AppleLoginChallenge().fields["component"].default: AppleLoginChallenge,
+        },
         resource_type_field_name="component",
     )
 )
@@ -74,10 +65,7 @@ class IdentificationChallenge(Challenge):
 
     user_fields = ListField(child=CharField(), allow_empty=True, allow_null=True)
     password_fields = BooleanField()
-    allow_show_password = BooleanField(default=False)
     application_pre = CharField(required=False)
-    flow_designation = ChoiceField(FlowDesignation.choices)
-    captcha_stage = CaptchaChallenge(required=False, allow_null=True)
 
     enroll_url = CharField(required=False)
     recovery_url = CharField(required=False)
@@ -94,22 +82,20 @@ class IdentificationChallengeResponse(ChallengeResponse):
 
     uid_field = CharField()
     password = CharField(required=False, allow_blank=True, allow_null=True)
-    captcha_token = CharField(required=False, allow_blank=True, allow_null=True)
     component = CharField(default="ak-stage-identification")
 
-    pre_user: User | None = None
+    pre_user: Optional[User] = None
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
-        """Validate that user exists, and optionally their password and captcha token"""
+        """Validate that user exists, and optionally their password"""
         uid_field = attrs["uid_field"]
         current_stage: IdentificationStage = self.stage.executor.current_stage
-        client_ip = ClientIPMiddleware.get_client_ip(self.stage.request)
 
         pre_user = self.stage.get_user(uid_field)
         if not pre_user:
-            with start_span(
+            with Hub.current.start_span(
                 op="authentik.stages.identification.validate_invalid_wait",
-                name="Sleep random time on invalid user identifier",
+                description="Sleep random time on invalid user identifier",
             ):
                 # Sleep a random time (between 90 and 210ms) to "prevent" user enumeration attacks
                 sleep(0.030 * SystemRandom().randint(3, 7))
@@ -118,7 +104,7 @@ class IdentificationChallengeResponse(ChallengeResponse):
             self.stage.logger.info(
                 "invalid_login",
                 identifier=uid_field,
-                client_ip=client_ip,
+                client_ip=ClientIPMiddleware.get_client_ip(self.stage.request),
                 action="invalid_identifier",
                 context={
                     "stage": sanitize_item(self.stage),
@@ -141,15 +127,6 @@ class IdentificationChallengeResponse(ChallengeResponse):
                 return attrs
             raise ValidationError("Failed to authenticate.")
         self.pre_user = pre_user
-
-        # Captcha check
-        if captcha_stage := current_stage.captcha_stage:
-            captcha_token = attrs.get("captcha_token", None)
-            if not captcha_token:
-                self.stage.logger.warning("Token not set for captcha attempt")
-            verify_captcha_token(captcha_stage, captcha_token, client_ip)
-
-        # Password check
         if not current_stage.password_stage:
             # No password stage select, don't validate the password
             return attrs
@@ -158,9 +135,9 @@ class IdentificationChallengeResponse(ChallengeResponse):
         if not password:
             self.stage.logger.warning("Password not set for ident+auth attempt")
         try:
-            with start_span(
+            with Hub.current.start_span(
                 op="authentik.stages.identification.authenticate",
-                name="User authenticate call (combo stage)",
+                description="User authenticate call (combo stage)",
             ):
                 user = authenticate(
                     self.stage.request,
@@ -182,7 +159,7 @@ class IdentificationStageView(ChallengeStageView):
 
     response_class = IdentificationChallengeResponse
 
-    def get_user(self, uid_value: str) -> User | None:
+    def get_user(self, uid_value: str) -> Optional[User]:
         """Find user instance. Returns None if no user was found."""
         current_stage: IdentificationStage = self.executor.current_stage
         query = Q()
@@ -216,25 +193,12 @@ class IdentificationStageView(ChallengeStageView):
         current_stage: IdentificationStage = self.executor.current_stage
         challenge = IdentificationChallenge(
             data={
-                "component": "ak-stage-identification",
+                "type": ChallengeTypes.NATIVE.value,
                 "primary_action": self.get_primary_action(),
+                "component": "ak-stage-identification",
                 "user_fields": current_stage.user_fields,
                 "password_fields": bool(current_stage.password_stage),
-                "captcha_stage": (
-                    {
-                        "js_url": current_stage.captcha_stage.js_url,
-                        "site_key": current_stage.captcha_stage.public_key,
-                        "interactive": current_stage.captcha_stage.interactive,
-                        "pending_user": "",
-                        "pending_user_avatar": DEFAULT_AVATAR,
-                    }
-                    if current_stage.captcha_stage
-                    else None
-                ),
-                "allow_show_password": bool(current_stage.password_stage)
-                and current_stage.password_stage.allow_show_password,
                 "show_source_labels": current_stage.show_source_labels,
-                "flow_designation": self.executor.flow.designation,
             }
         )
         # If the user has been redirected to us whilst trying to access an
@@ -273,9 +237,7 @@ class IdentificationStageView(ChallengeStageView):
             ui_login_button = source.ui_login_button(self.request)
             if ui_login_button:
                 button = asdict(ui_login_button)
-                source_challenge = ui_login_button.challenge
-                source_challenge.is_valid()
-                button["challenge"] = source_challenge.data
+                button["challenge"] = ui_login_button.challenge.data
                 ui_sources.append(button)
         challenge.initial_data["sources"] = ui_sources
         return challenge

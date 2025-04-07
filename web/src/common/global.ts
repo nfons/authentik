@@ -11,10 +11,6 @@ export interface GlobalAuthentik {
     versionFamily: string;
     versionSubdomain: string;
     build: string;
-    api: {
-        base: string;
-        relBase: string;
-    };
 }
 
 export interface AuthentikWindow {
@@ -28,7 +24,6 @@ export function globalAK(): GlobalAuthentik {
         ak.brand = CurrentBrandFromJSON(ak.brand);
         ak.config = ConfigFromJSON(ak.config);
     }
-    const apiBase = new URL(process.env.AK_API_BASE_PATH || window.location.origin);
     if (!ak) {
         return {
             config: ConfigFromJSON({
@@ -40,10 +35,6 @@ export function globalAK(): GlobalAuthentik {
             versionFamily: "",
             versionSubdomain: "",
             build: "",
-            api: {
-                base: apiBase.toString(),
-                relBase: apiBase.pathname,
-            },
         };
     }
     return ak;

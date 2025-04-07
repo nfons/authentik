@@ -25,12 +25,6 @@ export function convertToSlug(text: string): string {
         .replace(/[^\w-]+/g, "");
 }
 
-export function isSlug(text: string): boolean {
-    const lowered = text.toLowerCase();
-    const forbidden = /([^\w-]|\s)/.test(lowered);
-    return lowered === text && !forbidden;
-}
-
 /**
  * Truncate a string based on maximum word count
  */
@@ -117,21 +111,6 @@ export function dateTimeLocal(date: Date): string {
     return `${parts[0]}:${parts[1]}`;
 }
 
-export function dateToUTC(date: Date): Date {
-    // Sigh...so our API is UTC/can take TZ info in the ISO format as it should.
-    // datetime-local fields (which is almost the only date-time input we use)
-    // can return its value as a UTC timestamp...however the generated API client
-    // _requires_ a Date object, only to then convert it to an ISO string anyways
-    // JS Dates don't include timezone info in the ISO string, so that just sends
-    // the local time as UTC...which is wrong
-    // Instead we have to do this, convert the given date to a UTC timestamp,
-    // then subtract the timezone offset to create an "invalid" date (correct time&date)
-    // but it still "thinks" it's in local TZ
-    const timestamp = date.getTime();
-    const offset = -1 * (new Date().getTimezoneOffset() * 60000);
-    return new Date(timestamp - offset);
-}
-
 // Lit is extremely well-typed with regard to CSS, and Storybook's `build` does not currently have a
 // coherent way of importing CSS-as-text into CSSStyleSheet. It works well when Storybook is running
 // in `dev,` but in `build` it fails. Storied components will have to map their textual CSS imports
@@ -144,7 +123,7 @@ const isCSSResult = (v: unknown): v is CSSResult =>
 
 // prettier-ignore
 export const _adaptCSS = (sheet: AdaptableStylesheet): CSSStyleSheet =>
-    (typeof sheet === "string" ? css([sheet] as unknown as TemplateStringsArray, []).styleSheet
+    (typeof sheet === "string" ? css([sheet] as unknown as TemplateStringsArray, ...[]).styleSheet
         : isCSSResult(sheet) ? sheet.styleSheet
         : sheet) as CSSStyleSheet;
 
@@ -157,26 +136,23 @@ export function adaptCSS(sheet: AdaptableStylesheet | AdaptableStylesheet[]): Ad
     return Array.isArray(sheet) ? sheet.map(_adaptCSS) : _adaptCSS(sheet);
 }
 
+const _timeUnits = new Map<Intl.RelativeTimeFormatUnit, number>([
+    ["year", 24 * 60 * 60 * 1000 * 365],
+    ["month", (24 * 60 * 60 * 1000 * 365) / 12],
+    ["day", 24 * 60 * 60 * 1000],
+    ["hour", 60 * 60 * 1000],
+    ["minute", 60 * 1000],
+    ["second", 1000],
+]);
+
 export function getRelativeTime(d1: Date, d2: Date = new Date()): string {
-    const elapsed = d1.getTime() - d2.getTime();
     const rtf = new Intl.RelativeTimeFormat("default", { numeric: "auto" });
+    const elapsed = d1.getTime() - d2.getTime();
 
-    const _timeUnits: [Intl.RelativeTimeFormatUnit, number][] = [
-        ["year", 1000 * 60 * 60 * 24 * 365],
-        ["month", (24 * 60 * 60 * 1000 * 365) / 12],
-        ["day", 1000 * 60 * 60 * 24],
-        ["hour", 1000 * 60 * 60],
-        ["minute", 1000 * 60],
-        ["second", 1000],
-    ];
-
+    // "Math.abs" accounts for both "past" & "future" scenarios
     for (const [key, value] of _timeUnits) {
-        if (Math.abs(elapsed) > value || key === "second") {
-            let rounded = Math.round(elapsed / value);
-            if (!isFinite(rounded)) {
-                rounded = 0;
-            }
-            return rtf.format(rounded, key);
+        if (Math.abs(elapsed) > value || key == "second") {
+            return rtf.format(Math.round(elapsed / value), key);
         }
     }
     return rtf.format(Math.round(elapsed / 1000), "second");

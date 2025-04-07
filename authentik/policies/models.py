@@ -40,16 +40,12 @@ class PolicyBindingModel(models.Model):
 
     objects = InheritanceManager()
 
-    class Meta:
-        verbose_name = _("Policy Binding Model")
-        verbose_name_plural = _("Policy Binding Models")
-
     def __str__(self) -> str:
         return f"PolicyBindingModel {self.pbm_uuid}"
 
-    def supported_policy_binding_targets(self):
-        """Return the list of objects that can be bound to this object."""
-        return ["policy", "user", "group"]
+    class Meta:
+        verbose_name = _("Policy Binding Model")
+        verbose_name_plural = _("Policy Binding Models")
 
 
 class PolicyBinding(SerializerModel):
@@ -85,9 +81,7 @@ class PolicyBinding(SerializerModel):
         blank=True,
     )
 
-    target = InheritanceForeignKey(
-        PolicyBindingModel, on_delete=models.CASCADE, related_name="bindings"
-    )
+    target = InheritanceForeignKey(PolicyBindingModel, on_delete=models.CASCADE, related_name="+")
     negate = models.BooleanField(
         default=False,
         help_text=_("Negates the outcome of the policy. Messages are unaffected."),
@@ -144,7 +138,7 @@ class PolicyBinding(SerializerModel):
         suffix = f"{self.target_type.title()} {self.target_name}"
         try:
             return f"Binding from {self.target} #{self.order} to {suffix}"
-        except PolicyBinding.target.RelatedObjectDoesNotExist:
+        except PolicyBinding.target.RelatedObjectDoesNotExist:  # pylint: disable=no-member
             return f"Binding - #{self.order} to {suffix}"
         return ""
 

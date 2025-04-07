@@ -1,12 +1,13 @@
-import "@goauthentik/admin/rbac/ObjectPermissionModal";
 import "@goauthentik/admin/stages/invitation/InvitationForm";
 import "@goauthentik/admin/stages/invitation/InvitationListLink";
 import { DEFAULT_CONFIG } from "@goauthentik/common/api/config";
+import { uiConfig } from "@goauthentik/common/ui/config";
 import { PFColor } from "@goauthentik/elements/Label";
 import "@goauthentik/elements/buttons/ModalButton";
 import "@goauthentik/elements/buttons/SpinnerButton";
 import "@goauthentik/elements/forms/DeleteBulkForm";
 import "@goauthentik/elements/forms/ModalForm";
+import "@goauthentik/elements/rbac/ObjectPermissionModal";
 import { PaginatedResponse } from "@goauthentik/elements/table/Table";
 import { TableColumn } from "@goauthentik/elements/table/Table";
 import { TablePage } from "@goauthentik/elements/table/TablePage";
@@ -61,7 +62,7 @@ export class InvitationListPage extends TablePage<Invitation> {
     @state()
     multipleEnrollmentFlows = false;
 
-    async apiEndpoint(): Promise<PaginatedResponse<Invitation>> {
+    async apiEndpoint(page: number): Promise<PaginatedResponse<Invitation>> {
         try {
             // Check if any invitation stages exist
             const stages = await new StagesApi(DEFAULT_CONFIG).stagesInvitationStagesList({
@@ -81,7 +82,10 @@ export class InvitationListPage extends TablePage<Invitation> {
             // assuming we can't fetch stages, ignore the error
         }
         return new StagesApi(DEFAULT_CONFIG).stagesInvitationInvitationsList({
-            ...(await this.defaultEndpointConfig()),
+            ordering: this.order,
+            page: page,
+            pageSize: (await uiConfig()).pagination.perPage,
+            search: this.search || "",
         });
     }
 
@@ -141,7 +145,7 @@ export class InvitationListPage extends TablePage<Invitation> {
                     </button>
                 </ak-forms-modal>
                 <ak-rbac-object-permission-modal
-                    model=${RbacPermissionsAssignedByUsersListModelEnum.AuthentikStagesInvitationInvitation}
+                    model=${RbacPermissionsAssignedByUsersListModelEnum.StagesInvitationInvitation}
                     objectPk=${item.pk}
                 >
                 </ak-rbac-object-permission-modal>`,
@@ -191,11 +195,5 @@ export class InvitationListPage extends TablePage<Invitation> {
             <section class="pf-c-page__main-section pf-m-no-padding-mobile">
                 <div class="pf-c-card">${this.renderTable()}</div>
             </section>`;
-    }
-}
-
-declare global {
-    interface HTMLElementTagNameMap {
-        "ak-stage-invitation-list": InvitationListPage;
     }
 }

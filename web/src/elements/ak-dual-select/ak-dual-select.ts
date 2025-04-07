@@ -351,9 +351,3 @@ export class AkDualSelect extends CustomEmitterElement(CustomListenerElement(AKE
         `;
     }
 }
-
-declare global {
-    interface HTMLElementTagNameMap {
-        "ak-dual-select": AkDualSelect;
-    }
-}

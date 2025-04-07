@@ -61,7 +61,7 @@ const mockData = {
 };
 
 const metadata: Meta<AkFlowSearch<Flow>> = {
-    title: "Elements / Search Select / Flow",
+    title: "Elements / Select Search / Flow",
     component: "ak-flow-search",
     parameters: {
         docs: {

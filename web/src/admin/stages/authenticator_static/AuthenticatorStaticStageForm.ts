@@ -150,9 +150,3 @@ export class AuthenticatorStaticStageForm extends BaseStageForm<AuthenticatorSta
             </ak-form-group>`;
     }
 }
-
-declare global {
-    interface HTMLElementTagNameMap {
-        "ak-stage-authenticator-static-form": AuthenticatorStaticStageForm;
-    }
-}

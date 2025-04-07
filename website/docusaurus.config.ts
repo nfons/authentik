@@ -1,22 +1,19 @@
+const fs = require("fs").promises;
 import type { Config } from "@docusaurus/types";
 import type * as Preset from "@docusaurus/preset-classic";
-import { themes as prismThemes } from "prism-react-renderer";
-import type * as OpenApiPlugin from "docusaurus-plugin-openapi-docs";
-import remarkGithub, { BuildUrlValues } from "remark-github";
-import { defaultBuildUrl } from "remark-github";
-import remarkDirective from "remark-directive";
-import remarkVersionDirective from "./remark/version-directive";
-import remarkPreviewDirective from "./remark/preview-directive";
-import remarkSupportDirective from "./remark/support-directive";
 
-const createConfig = (): Config => {
+module.exports = async function (): Promise<Config> {
+    const remarkGithub = (await import("remark-github")).default;
+    const defaultBuildUrl = (await import("remark-github")).defaultBuildUrl;
+    const footerEmail = await fs.readFile("src/footer.html", {
+        encoding: "utf-8",
+    });
     return {
         title: "authentik",
         tagline: "Bring all of your authentication into a unified platform.",
-        url: "https://docs.goauthentik.io",
+        url: "https://goauthentik.io",
         baseUrl: "/",
         onBrokenLinks: "throw",
-        onBrokenAnchors: "throw",
         favicon: "img/icon.png",
         organizationName: "Authentik Security Inc.",
         projectName: "authentik",
@@ -26,15 +23,13 @@ const createConfig = (): Config => {
                 logo: {
                     alt: "authentik logo",
                     src: "img/icon_left_brand.svg",
-                    href: "https://goauthentik.io/",
-                    target: "_self",
                 },
                 items: [
+                    { to: "blog", label: "Blog", position: "left" },
                     {
-                        to: "https://goauthentik.io/features",
-                        label: "Features",
+                        to: "docs/",
+                        label: "Docs",
                         position: "left",
-                        target: "_self",
                     },
                     {
                         to: "integrations/",
@@ -42,21 +37,14 @@ const createConfig = (): Config => {
                         position: "left",
                     },
                     {
-                        to: "docs/",
-                        label: "Documentation",
+                        to: "developer-docs/",
+                        label: "Developer",
                         position: "left",
                     },
                     {
-                        to: "https://goauthentik.io/pricing/",
+                        to: "pricing/",
                         label: "Pricing",
                         position: "left",
-                        target: "_self",
-                    },
-                    {
-                        to: "https://goauthentik.io/blog",
-                        label: "Blog",
-                        position: "left",
-                        target: "_self",
                     },
                     {
                         href: "https://github.com/goauthentik/authentik",
@@ -73,12 +61,72 @@ const createConfig = (): Config => {
                 ],
             },
             footer: {
-                links: [],
+                links: [
+                    {
+                        title: "Subscribe to authentik News",
+                        items: [
+                            {
+                                html: footerEmail,
+                            },
+                        ],
+                    },
+                    {
+                        title: "Documentation",
+                        items: [
+                            {
+                                label: "Documentation",
+                                to: "docs/",
+                            },
+                            {
+                                label: "Integrations",
+                                to: "integrations/",
+                            },
+                            {
+                                label: "Developer Documentation",
+                                to: "developer-docs/",
+                            },
+                            {
+                                label: "Installations",
+                                to: "docs/installation/",
+                            },
+                        ],
+                    },
+                    {
+                        title: "More",
+                        items: [
+                            {
+                                to: "jobs/",
+                                label: "Jobs",
+                                position: "left",
+                            },
+                            {
+                                label: "GitHub",
+                                href: "https://github.com/goauthentik/authentik",
+                            },
+                            {
+                                label: "Discord",
+                                href: "https://goauthentik.io/discord",
+                            },
+                        ],
+                    },
+                    {
+                        title: "Legal",
+                        items: [
+                            {
+                                to: "legal/terms",
+                                label: "Terms & Conditions",
+                            },
+                            {
+                                to: "legal/privacy-policy",
+                                label: "Privacy policy",
+                            },
+                        ],
+                    },
+                ],
                 copyright: `Copyright © ${new Date().getFullYear()} Authentik Security Inc. Built with Docusaurus.`,
             },
             tableOfContents: {
-                minHeadingLevel: 2,
-                maxHeadingLevel: 3,
+                maxHeadingLevel: 5,
             },
             colorMode: {
                 respectPrefersColorScheme: true,
@@ -89,18 +137,7 @@ const createConfig = (): Config => {
                 indexName: "goauthentik",
             },
             prism: {
-                theme: prismThemes.oneLight,
-                darkTheme: prismThemes.oneDark,
-                additionalLanguages: [
-                    // ---
-                    "apacheconf",
-                    "diff",
-                    "http",
-                    "json",
-                    "nginx",
-                    "python",
-                    "bash",
-                ],
+                additionalLanguages: ["python", "diff", "json"],
             },
         },
         presets: [
@@ -109,25 +146,16 @@ const createConfig = (): Config => {
                 {
                     docs: {
                         id: "docs",
-                        sidebarPath: "./sidebars.js",
-                        showLastUpdateTime: false,
+                        sidebarPath: require.resolve("./sidebars.js"),
                         editUrl:
                             "https://github.com/goauthentik/authentik/edit/main/website/",
-                        docItemComponent: "@theme/ApiItem",
-
-                        beforeDefaultRemarkPlugins: [
-                            remarkDirective,
-                            remarkVersionDirective,
-                            remarkPreviewDirective,
-                            remarkSupportDirective,
-                        ],
                         remarkPlugins: [
                             [
                                 remarkGithub,
                                 {
                                     repository: "goauthentik/authentik",
                                     // Only replace issues and PR links
-                                    buildUrl: (values: BuildUrlValues) => {
+                                    buildUrl: function (values) {
                                         return values.type === "issue" ||
                                             values.type === "mention"
                                             ? defaultBuildUrl(values)
@@ -140,6 +168,15 @@ const createConfig = (): Config => {
                     theme: {
                         customCss: require.resolve("./src/css/custom.css"),
                     },
+                    gtag: {
+                        trackingID: "G-9MVR9WZFZH",
+                        anonymizeIP: true,
+                    },
+                    blog: {
+                        showReadingTime: true,
+                        blogSidebarTitle: "All our posts",
+                        blogSidebarCount: "ALL",
+                    },
                 } satisfies Preset.Options,
             ],
         ],
@@ -150,37 +187,36 @@ const createConfig = (): Config => {
                     id: "docsIntegrations",
                     path: "integrations",
                     routeBasePath: "integrations",
-                    sidebarPath: "./sidebarsIntegrations.js",
+                    sidebarPath: require.resolve("./sidebarsIntegrations.js"),
                     editUrl:
                         "https://github.com/goauthentik/authentik/edit/main/website/",
                 },
             ],
             [
-                "docusaurus-plugin-openapi-docs",
+                "@docusaurus/plugin-content-docs",
                 {
-                    id: "api",
-                    docsPluginId: "docs",
-                    config: {
-                        authentik: {
-                            specPath: "static/schema.yml",
-                            outputDir: "docs/developer-docs/api/reference/",
-                            hideSendButton: true,
-                            sidebarOptions: {
-                                groupPathsBy: "tag",
-                            },
-                        } satisfies OpenApiPlugin.Options,
-                    },
+                    id: "docsDevelopers",
+                    path: "developer-docs",
+                    routeBasePath: "developer-docs",
+                    sidebarPath: require.resolve("./sidebarsDev.js"),
+                    editUrl:
+                        "https://github.com/goauthentik/authentik/edit/main/website/",
                 },
             ],
         ],
         markdown: {
             mermaid: true,
         },
-        future: {
-            experimental_faster: true,
-        },
-        themes: ["@docusaurus/theme-mermaid", "docusaurus-theme-openapi-docs"],
+        themes: ["@docusaurus/theme-mermaid"],
+        scripts: [
+            {
+                src: "https://goauthentik.io/js/script.js",
+                async: true,
+                "data-domain": "goauthentik.io",
+            },
+            {
+                src: "https://boards.greenhouse.io/embed/job_board/js?for=authentiksecurity",
+            },
+        ],
     };
 };
-
-module.exports = createConfig;

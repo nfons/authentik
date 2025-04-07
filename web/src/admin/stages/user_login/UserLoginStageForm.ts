@@ -54,9 +54,7 @@ export class UserLoginStageForm extends BaseStageForm<UserLoginStage> {
                         <input
                             type="text"
                             value="${first(this.instance?.sessionDuration, "seconds=0")}"
-                            class="pf-c-form-control pf-m-monospace"
-                            autocomplete="off"
-                            spellcheck="false"
+                            class="pf-c-form-control"
                             required
                         />
                         <p class="pf-c-form__helper-text">
@@ -85,9 +83,7 @@ export class UserLoginStageForm extends BaseStageForm<UserLoginStage> {
                         <input
                             type="text"
                             value="${first(this.instance?.rememberMeOffset, "seconds=0")}"
-                            class="pf-c-form-control pf-m-monospace"
-                            autocomplete="off"
-                            spellcheck="false"
+                            class="pf-c-form-control"
                             required
                         />
                         <p class="pf-c-form__helper-text">
@@ -189,11 +185,5 @@ export class UserLoginStageForm extends BaseStageForm<UserLoginStage> {
                     </ak-form-element-horizontal>
                 </div>
             </ak-form-group>`;
-    }
-}
-
-declare global {
-    interface HTMLElementTagNameMap {
-        "ak-stage-user-login-form": UserLoginStageForm;
     }
 }

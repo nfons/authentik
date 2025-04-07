@@ -1,5 +1,6 @@
 import "@goauthentik/admin/roles/RoleForm";
 import { DEFAULT_CONFIG } from "@goauthentik/common/api/config";
+import { uiConfig } from "@goauthentik/common/ui/config";
 import "@goauthentik/elements/buttons/SpinnerButton";
 import "@goauthentik/elements/forms/DeleteBulkForm";
 import "@goauthentik/elements/forms/ModalForm";
@@ -9,9 +10,11 @@ import { TablePage } from "@goauthentik/elements/table/TablePage";
 import "@patternfly/elements/pf-tooltip/pf-tooltip.js";
 
 import { msg } from "@lit/localize";
-import { TemplateResult, html } from "lit";
+import { CSSResult, TemplateResult, html } from "lit";
 import { customElement, property } from "lit/decorators.js";
 import { ifDefined } from "lit/directives/if-defined.js";
+
+import PFBanner from "@patternfly/patternfly/components/Banner/banner.css";
 
 import { RbacApi, Role } from "@goauthentik/api";
 
@@ -35,8 +38,17 @@ export class RoleListPage extends TablePage<Role> {
     @property()
     order = "name";
 
-    async apiEndpoint(): Promise<PaginatedResponse<Role>> {
-        return new RbacApi(DEFAULT_CONFIG).rbacRolesList(await this.defaultEndpointConfig());
+    static get styles(): CSSResult[] {
+        return [...super.styles, PFBanner];
+    }
+
+    async apiEndpoint(page: number): Promise<PaginatedResponse<Role>> {
+        return new RbacApi(DEFAULT_CONFIG).rbacRolesList({
+            ordering: this.order,
+            page: page,
+            pageSize: (await uiConfig()).pagination.perPage,
+            search: this.search || "",
+        });
     }
 
     columns(): TableColumn[] {
@@ -72,6 +84,10 @@ export class RoleListPage extends TablePage<Role> {
                 description=${ifDefined(this.pageDescription())}
             >
             </ak-page-header>
+            <div class="pf-c-banner pf-m-info">
+                ${msg("RBAC is in preview.")}
+                <a href="mailto:hello@goauthentik.io">${msg("Send us feedback!")}</a>
+            </div>
             <section class="pf-c-page__main-section pf-m-no-padding-mobile">
                 <div class="pf-c-card">${this.renderTable()}</div>
             </section>`;
@@ -102,11 +118,5 @@ export class RoleListPage extends TablePage<Role> {
                 <button slot="trigger" class="pf-c-button pf-m-primary">${msg("Create")}</button>
             </ak-forms-modal>
         `;
-    }
-}
-
-declare global {
-    interface HTMLElementTagNameMap {
-        "ak-role-list": RoleListPage;
     }
 }

@@ -1,15 +1,14 @@
 """Source type manager"""
 
-from collections.abc import Callable
 from enum import Enum
-from typing import Any
+from typing import Callable, Optional, Type
 
 from django.http.request import HttpRequest
 from django.templatetags.static import static
 from django.urls.base import reverse
 from structlog.stdlib import get_logger
 
-from authentik.flows.challenge import Challenge, RedirectChallenge
+from authentik.flows.challenge import Challenge, ChallengeTypes, RedirectChallenge
 from authentik.sources.oauth.models import OAuthSource
 from authentik.sources.oauth.views.callback import OAuthCallback
 from authentik.sources.oauth.views.redirect import OAuthRedirect
@@ -34,12 +33,12 @@ class SourceType:
 
     urls_customizable = False
 
-    request_token_url: str | None = None
-    authorization_url: str | None = None
-    access_token_url: str | None = None
-    profile_url: str | None = None
-    oidc_well_known_url: str | None = None
-    oidc_jwks_url: str | None = None
+    request_token_url: Optional[str] = None
+    authorization_url: Optional[str] = None
+    access_token_url: Optional[str] = None
+    profile_url: Optional[str] = None
+    oidc_well_known_url: Optional[str] = None
+    oidc_jwks_url: Optional[str] = None
 
     def icon_url(self) -> str:
         """Get Icon URL for login"""
@@ -48,27 +47,14 @@ class SourceType:
     def login_challenge(self, source: OAuthSource, request: HttpRequest) -> Challenge:
         """Allow types to return custom challenges"""
         return RedirectChallenge(
-            data={
+            instance={
+                "type": ChallengeTypes.REDIRECT.value,
                 "to": reverse(
                     "authentik_sources_oauth:oauth-client-login",
                     kwargs={"source_slug": source.slug},
                 ),
             }
         )
-
-    def get_base_user_properties(
-        self, source: OAuthSource, info: dict[str, Any], **kwargs
-    ) -> dict[str, Any | dict[str, Any]]:
-        """Get base user properties for enrollment/update"""
-        return info
-
-    def get_base_group_properties(
-        self, source: OAuthSource, group_id: str, **kwargs
-    ) -> dict[str, Any | dict[str, Any]]:
-        """Get base group properties for creation/update"""
-        return {
-            "name": group_id,
-        }
 
 
 class SourceTypeRegistry:
@@ -94,7 +80,7 @@ class SourceTypeRegistry:
         """Get list of tuples of all registered names"""
         return [(x.name, x.verbose_name) for x in self.__sources]
 
-    def find_type(self, type_name: str) -> type[SourceType]:
+    def find_type(self, type_name: str) -> Type[SourceType]:
         """Find type based on source"""
         found_type = None
         for src_type in self.__sources:

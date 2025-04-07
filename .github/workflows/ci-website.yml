@@ -12,21 +12,20 @@ on:
       - version-*
 
 jobs:
-  lint:
+  lint-prettier:
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        command:
-          - lint:lockfile
-          - prettier-check
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: website/package.json
+          cache: "npm"
+          cache-dependency-path: website/package-lock.json
       - working-directory: website/
         run: npm ci
-      - name: Lint
+      - name: prettier
         working-directory: website/
-        run: npm run ${{ matrix.command }}
+        run: npm run prettier-check
   test:
     runs-on: ubuntu-latest
     steps:
@@ -49,6 +48,7 @@ jobs:
       matrix:
         job:
           - build
+          - build-docs-only
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -62,13 +62,10 @@ jobs:
         working-directory: website/
         run: npm run ${{ matrix.job }}
   ci-website-mark:
-    if: always()
     needs:
-      - lint
+      - lint-prettier
       - test
       - build
     runs-on: ubuntu-latest
     steps:
-      - uses: re-actors/alls-green@release/v1
-        with:
-          jobs: ${{ toJSON(needs) }}
+      - run: echo mark

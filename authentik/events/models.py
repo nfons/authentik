@@ -7,6 +7,7 @@ from difflib import get_close_matches
 from functools import lru_cache
 from inspect import currentframe
 from smtplib import SMTPException
+from typing import Optional
 from uuid import uuid4
 
 from django.apps import apps
@@ -49,21 +50,14 @@ from authentik.policies.models import PolicyBindingModel
 from authentik.root.middleware import ClientIPMiddleware
 from authentik.stages.email.utils import TemplateEmailMessage
 from authentik.tenants.models import Tenant
-from authentik.tenants.utils import get_current_tenant
 
 LOGGER = get_logger()
-DISCORD_FIELD_LIMIT = 25
-NOTIFICATION_SUMMARY_LENGTH = 75
 
 
 def default_event_duration():
     """Default duration an Event is saved.
     This is used as a fallback when no brand is available"""
-    try:
-        tenant = get_current_tenant(only=["event_retention"])
-        return now() + timedelta_from_string(tenant.event_retention)
-    except Tenant.DoesNotExist:
-        return now() + timedelta(days=365)
+    return now() + timedelta(days=365)
 
 
 def default_brand():
@@ -71,7 +65,7 @@ def default_brand():
     return sanitize_dict(model_to_dict(DEFAULT_BRAND))
 
 
-@lru_cache
+@lru_cache()
 def django_app_names() -> list[str]:
     """Get a cached list of all django apps' names (not labels)"""
     return [x.name for x in apps.app_configs.values()]
@@ -204,7 +198,7 @@ class Event(SerializerModel, ExpiringModel):
     @staticmethod
     def new(
         action: str | EventAction,
-        app: str | None = None,
+        app: Optional[str] = None,
         **kwargs,
     ) -> "Event":
         """Create new Event instance from arguments. Instance is NOT saved."""
@@ -230,7 +224,7 @@ class Event(SerializerModel, ExpiringModel):
         self.user = get_user(user)
         return self
 
-    def from_http(self, request: HttpRequest, user: User | None = None) -> "Event":
+    def from_http(self, request: HttpRequest, user: Optional[User] = None) -> "Event":
         """Add data from a Django-HttpRequest, allowing the creation of
         Events independently from requests.
         `user` arguments optionally overrides user from requests."""
@@ -243,13 +237,17 @@ class Event(SerializerModel, ExpiringModel):
                 "args": cleanse_dict(QueryDict(request.META.get("QUERY_STRING", ""))),
                 "user_agent": request.META.get("HTTP_USER_AGENT", ""),
             }
-            if hasattr(request, "request_id"):
-                self.context["http_request"]["request_id"] = request.request_id
             # Special case for events created during flow execution
             # since they keep the http query within a wrapped query
             if QS_QUERY in self.context["http_request"]["args"]:
                 wrapped = self.context["http_request"]["args"][QS_QUERY]
                 self.context["http_request"]["args"] = cleanse_dict(QueryDict(wrapped))
+        if hasattr(request, "tenant"):
+            tenant: Tenant = request.tenant
+            # Because self.created only gets set on save, we can't use it's value here
+            # hence we set self.created to now and then use it
+            self.created = now()
+            self.expires = self.created + timedelta_from_string(tenant.event_retention)
         if hasattr(request, "brand"):
             brand: Brand = request.brand
             self.brand = sanitize_dict(model_to_dict(brand))
@@ -306,16 +304,6 @@ class Event(SerializerModel, ExpiringModel):
     class Meta:
         verbose_name = _("Event")
         verbose_name_plural = _("Events")
-        indexes = ExpiringModel.Meta.indexes + [
-            models.Index(fields=["action"]),
-            models.Index(fields=["user"]),
-            models.Index(fields=["app"]),
-            models.Index(fields=["created"]),
-            models.Index(fields=["client_ip"]),
-            models.Index(
-                models.F("context__authorized_application"), name="authentik_e_ctx_app__idx"
-            ),
-        ]
 
 
 class TransportMode(models.TextChoices):
@@ -336,27 +324,8 @@ class NotificationTransport(SerializerModel):
     mode = models.TextField(choices=TransportMode.choices, default=TransportMode.LOCAL)
 
     webhook_url = models.TextField(blank=True, validators=[DomainlessURLValidator()])
-    webhook_mapping_body = models.ForeignKey(
-        "NotificationWebhookMapping",
-        on_delete=models.SET_DEFAULT,
-        null=True,
-        default=None,
-        related_name="+",
-        help_text=_(
-            "Customize the body of the request. "
-            "Mapping should return data that is JSON-serializable."
-        ),
-    )
-    webhook_mapping_headers = models.ForeignKey(
-        "NotificationWebhookMapping",
-        on_delete=models.SET_DEFAULT,
-        null=True,
-        default=None,
-        related_name="+",
-        help_text=_(
-            "Configure additional headers to be sent. "
-            "Mapping should return a dictionary of key-value pairs"
-        ),
+    webhook_mapping = models.ForeignKey(
+        "NotificationWebhookMapping", on_delete=models.SET_DEFAULT, null=True, default=None
     )
     send_once = models.BooleanField(
         default=False,
@@ -379,8 +348,8 @@ class NotificationTransport(SerializerModel):
 
     def send_local(self, notification: "Notification") -> list[str]:
         """Local notification delivery"""
-        if self.webhook_mapping_body:
-            self.webhook_mapping_body.evaluate(
+        if self.webhook_mapping:
+            self.webhook_mapping.evaluate(
                 user=notification.user,
                 request=None,
                 notification=notification,
@@ -399,18 +368,9 @@ class NotificationTransport(SerializerModel):
         if notification.event and notification.event.user:
             default_body["event_user_email"] = notification.event.user.get("email", None)
             default_body["event_user_username"] = notification.event.user.get("username", None)
-        headers = {}
-        if self.webhook_mapping_body:
+        if self.webhook_mapping:
             default_body = sanitize_item(
-                self.webhook_mapping_body.evaluate(
-                    user=notification.user,
-                    request=None,
-                    notification=notification,
-                )
-            )
-        if self.webhook_mapping_headers:
-            headers = sanitize_item(
-                self.webhook_mapping_headers.evaluate(
+                self.webhook_mapping.evaluate(
                     user=notification.user,
                     request=None,
                     notification=notification,
@@ -420,7 +380,6 @@ class NotificationTransport(SerializerModel):
             response = get_http_session().post(
                 self.webhook_url,
                 json=default_body,
-                headers=headers,
             )
             response.raise_for_status()
         except RequestException as exc:
@@ -459,7 +418,7 @@ class NotificationTransport(SerializerModel):
                 if not isinstance(value, str):
                     continue
                 # https://birdie0.github.io/discord-webhooks-guide/other/field_limits.html
-                if len(fields) >= DISCORD_FIELD_LIMIT:
+                if len(fields) >= 25:
                     continue
                 fields.append({"title": key[:256], "value": value[:1024]})
         body = {
@@ -520,7 +479,7 @@ class NotificationTransport(SerializerModel):
                     continue
                 context["key_value"][key] = value
         else:
-            context["title"] += notification.body[:NOTIFICATION_SUMMARY_LENGTH]
+            context["title"] += notification.body[:75]
         # TODO: improve permission check
         if notification.user.is_superuser:
             context["source"] = {
@@ -537,7 +496,7 @@ class NotificationTransport(SerializerModel):
         try:
             from authentik.stages.email.tasks import send_mail
 
-            return send_mail(mail.__dict__)
+            return send_mail(mail.__dict__)  # pylint: disable=no-value-for-parameter
         except (SMTPException, ConnectionError, OSError) as exc:
             raise NotificationTransportError(exc) from exc
 
@@ -581,12 +540,8 @@ class Notification(SerializerModel):
         return NotificationSerializer
 
     def __str__(self) -> str:
-        body_trunc = (
-            (self.body[:NOTIFICATION_SUMMARY_LENGTH] + "..")
-            if len(self.body) > NOTIFICATION_SUMMARY_LENGTH
-            else self.body
-        )
-        return f"Notification for user {self.user_id}: {body_trunc}"
+        body_trunc = (self.body[:75] + "..") if len(self.body) > 75 else self.body
+        return f"Notification for user {self.user}: {body_trunc}"
 
     class Meta:
         verbose_name = _("Notification")
@@ -723,4 +678,3 @@ class SystemTask(SerializerModel, ExpiringModel):
         permissions = [("run_task", _("Run task"))]
         verbose_name = _("System Task")
         verbose_name_plural = _("System Tasks")
-        indexes = ExpiringModel.Meta.indexes

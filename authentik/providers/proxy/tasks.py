@@ -1,12 +1,13 @@
 """proxy provider tasks"""
 
+from hashlib import sha256
+
 from asgiref.sync import async_to_sync
 from channels.layers import get_channel_layer
 from django.db import DatabaseError, InternalError, ProgrammingError
 
 from authentik.outposts.consumer import OUTPOST_GROUP
 from authentik.outposts.models import Outpost, OutpostType
-from authentik.providers.oauth2.id_token import hash_session_key
 from authentik.providers.proxy.models import ProxyProvider
 from authentik.root.celery import CELERY_APP
 
@@ -25,7 +26,7 @@ def proxy_set_defaults():
 def proxy_on_logout(session_id: str):
     """Update outpost instances connected to a single outpost"""
     layer = get_channel_layer()
-    hashed_session_id = hash_session_key(session_id)
+    hashed_session_id = sha256(session_id.encode("ascii")).hexdigest()
     for outpost in Outpost.objects.filter(type=OutpostType.PROXY):
         group = OUTPOST_GROUP % {"outpost_pk": str(outpost.pk)}
         async_to_sync(layer.group_send)(

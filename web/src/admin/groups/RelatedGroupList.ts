@@ -2,6 +2,7 @@ import "@goauthentik/admin/groups/GroupForm";
 import "@goauthentik/admin/groups/GroupForm";
 import "@goauthentik/admin/users/GroupSelectModal";
 import { DEFAULT_CONFIG } from "@goauthentik/common/api/config";
+import { uiConfig } from "@goauthentik/common/ui/config";
 import "@goauthentik/components/ak-status-label";
 import "@goauthentik/elements/buttons/SpinnerButton";
 import "@goauthentik/elements/forms/DeleteBulkForm";
@@ -97,11 +98,13 @@ export class RelatedGroupList extends Table<Group> {
     @property({ attribute: false })
     targetUser?: User;
 
-    async apiEndpoint(): Promise<PaginatedResponse<Group>> {
+    async apiEndpoint(page: number): Promise<PaginatedResponse<Group>> {
         return new CoreApi(DEFAULT_CONFIG).coreGroupsList({
-            ...(await this.defaultEndpointConfig()),
+            ordering: this.order,
+            page: page,
+            pageSize: (await uiConfig()).pagination.perPage,
+            search: this.search || "",
             membersByPk: this.targetUser ? [this.targetUser.pk] : [],
-            includeUsers: false,
         });
     }
 
@@ -181,12 +184,5 @@ export class RelatedGroupList extends Table<Group> {
             </ak-forms-modal>
             ${super.renderToolbar()}
         `;
-    }
-}
-
-declare global {
-    interface HTMLElementTagNameMap {
-        "ak-group-related-list": RelatedGroupList;
-        "ak-group-related-add": RelatedGroupAdd;
     }
 }

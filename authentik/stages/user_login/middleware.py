@@ -1,9 +1,10 @@
 """Sessions bound to ASN/Network and GeoIP/Continent/etc"""
 
+from django.conf import settings
 from django.contrib.auth.middleware import AuthenticationMiddleware
 from django.contrib.auth.signals import user_logged_out
-from django.contrib.auth.views import redirect_to_login
 from django.http.request import HttpRequest
+from django.shortcuts import redirect
 from structlog.stdlib import get_logger
 
 from authentik.core.models import AuthenticatedSession
@@ -22,7 +23,8 @@ LOGGER = get_logger()
 class SessionBindingBroken(SentryIgnoredException):
     """Session binding was broken due to specified `reason`"""
 
-    def __init__(  # noqa: PLR0913
+    # pylint: disable=too-many-arguments
+    def __init__(
         self, reason: str, old_value: str, new_value: str, old_ip: str, new_ip: str
     ) -> None:
         self.reason = reason
@@ -86,7 +88,7 @@ class BoundSessionMiddleware(SessionMiddleware):
             AuthenticationMiddleware(lambda request: request).process_request(request)
             logout_extra(request, exc)
             request.session.clear()
-            return redirect_to_login(request.get_full_path())
+            return redirect(settings.LOGIN_URL)
         return None
 
     def recheck_session(self, request: HttpRequest):
@@ -147,8 +149,8 @@ class BoundSessionMiddleware(SessionMiddleware):
             if last_asn.network != new_asn.network:
                 raise SessionBindingBroken(
                     "network.asn_network",
-                    str(last_asn.network),
-                    str(new_asn.network),
+                    last_asn.network,
+                    new_asn.network,
                     last_ip,
                     new_ip,
                 )

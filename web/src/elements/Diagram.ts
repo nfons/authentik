@@ -1,5 +1,4 @@
 import { EVENT_REFRESH, EVENT_THEME_CHANGE } from "@goauthentik/common/constants";
-import { DOM_PURIFY_STRICT } from "@goauthentik/common/purify";
 import { AKElement } from "@goauthentik/elements/Base";
 import "@goauthentik/elements/EmptyState";
 import mermaid, { MermaidConfig } from "mermaid";
@@ -42,14 +41,12 @@ export class Diagram extends AKElement {
             // The type definition for this says number
             // but the example use strings
             // and numbers don't work
-            logLevel: "fatal",
+            logLevel: "fatal" as unknown as number,
             startOnLoad: false,
             flowchart: {
                 curve: "linear",
             },
             htmlLabels: false,
-            securityLevel: "strict",
-            dompurifyConfig: DOM_PURIFY_STRICT,
         };
         mermaid.initialize(this.config);
     }
@@ -91,11 +88,5 @@ export class Diagram extends AKElement {
                 return unsafeHTML(r.svg);
             }),
         )}`;
-    }
-}
-
-declare global {
-    interface HTMLElementTagNameMap {
-        "ak-diagram": Diagram;
     }
 }

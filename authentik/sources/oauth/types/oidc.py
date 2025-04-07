@@ -26,6 +26,16 @@ class OpenIDConnectOAuth2Callback(OAuthCallback):
     def get_user_id(self, info: dict[str, str]) -> str:
         return info.get("sub", None)
 
+    def get_user_enroll_context(
+        self,
+        info: dict[str, Any],
+    ) -> dict[str, Any]:
+        return {
+            "username": info.get("nickname", info.get("preferred_username")),
+            "email": info.get("email"),
+            "name": info.get("name"),
+        }
+
 
 @registry.register()
 class OpenIDConnectType(SourceType):
@@ -37,11 +47,3 @@ class OpenIDConnectType(SourceType):
     name = "openidconnect"
 
     urls_customizable = True
-
-    def get_base_user_properties(self, info: dict[str, Any], **kwargs) -> dict[str, Any]:
-        return {
-            "username": info.get("nickname", info.get("preferred_username")),
-            "email": info.get("email"),
-            "name": info.get("name"),
-            "groups": info.get("groups", []),
-        }

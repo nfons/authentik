@@ -104,9 +104,3 @@ export class PasswordExpiryPolicyForm extends BasePolicyForm<PasswordExpiryPolic
             </ak-form-group>`;
     }
 }
-
-declare global {
-    interface HTMLElementTagNameMap {
-        "ak-policy-password-expiry-form": PasswordExpiryPolicyForm;
-    }
-}

@@ -1,13 +1,12 @@
 """authentik OAuth2 Token views"""
 
-from base64 import b64decode, urlsafe_b64encode
-from binascii import Error
+from base64 import urlsafe_b64encode
 from dataclasses import InitVar, dataclass
 from datetime import datetime
 from hashlib import sha256
 from re import error as RegexError
 from re import fullmatch
-from typing import Any
+from typing import Any, Optional
 from urllib.parse import urlparse
 
 from django.http import HttpRequest, HttpResponse
@@ -17,21 +16,18 @@ from django.views import View
 from django.views.decorators.csrf import csrf_exempt
 from guardian.shortcuts import get_anonymous_user
 from jwt import PyJWK, PyJWT, PyJWTError, decode
-from sentry_sdk import start_span
+from sentry_sdk.hub import Hub
 from structlog.stdlib import get_logger
 
 from authentik.core.middleware import CTX_AUTH_VIA
 from authentik.core.models import (
     USER_ATTRIBUTE_EXPIRES,
     USER_ATTRIBUTE_GENERATED,
-    USER_PATH_SYSTEM_PREFIX,
     Application,
     Token,
     TokenIntents,
     User,
-    UserTypes,
 )
-from authentik.events.middleware import audit_ignore
 from authentik.events.models import Event, EventAction
 from authentik.events.signals import get_login_event
 from authentik.flows.planner import PLAN_CONTEXT_APPLICATION
@@ -58,9 +54,7 @@ from authentik.providers.oauth2.models import (
     ClientTypes,
     DeviceToken,
     OAuth2Provider,
-    RedirectURIMatchingMode,
     RefreshToken,
-    ScopeMapping,
 )
 from authentik.providers.oauth2.utils import TokenResponse, cors_allow, extract_client_auth
 from authentik.providers.oauth2.views.authorize import FORBIDDEN_URI_SCHEMES
@@ -71,6 +65,7 @@ LOGGER = get_logger()
 
 
 @dataclass(slots=True)
+# pylint: disable=too-many-instance-attributes
 class TokenParams:
     """Token params"""
 
@@ -79,20 +74,20 @@ class TokenParams:
     redirect_uri: str
     grant_type: str
     state: str
-    scope: set[str]
+    scope: list[str]
 
     provider: OAuth2Provider
 
-    authorization_code: AuthorizationCode | None = None
-    refresh_token: RefreshToken | None = None
-    device_code: DeviceToken | None = None
-    user: User | None = None
+    authorization_code: Optional[AuthorizationCode] = None
+    refresh_token: Optional[RefreshToken] = None
+    device_code: Optional[DeviceToken] = None
+    user: Optional[User] = None
 
-    code_verifier: str | None = None
+    code_verifier: Optional[str] = None
 
     raw_code: InitVar[str] = ""
     raw_token: InitVar[str] = ""
-    request: InitVar[HttpRequest | None] = None
+    request: InitVar[Optional[HttpRequest]] = None
 
     @staticmethod
     def parse(
@@ -114,28 +109,13 @@ class TokenParams:
             redirect_uri=request.POST.get("redirect_uri", ""),
             grant_type=request.POST.get("grant_type", ""),
             state=request.POST.get("state", ""),
-            scope=set(request.POST.get("scope", "").split()),
+            scope=request.POST.get("scope", "").split(),
             # PKCE parameter.
             code_verifier=request.POST.get("code_verifier"),
         )
 
-    def __check_scopes(self):
-        allowed_scope_names = set(
-            ScopeMapping.objects.filter(provider__in=[self.provider]).values_list(
-                "scope_name", flat=True
-            )
-        )
-        scopes_to_check = self.scope
-        if not scopes_to_check.issubset(allowed_scope_names):
-            LOGGER.info(
-                "Application requested scopes not configured, setting to overlap",
-                scope_allowed=allowed_scope_names,
-                scope_given=self.scope,
-            )
-            self.scope = self.scope.intersection(allowed_scope_names)
-
     def __check_policy_access(self, app: Application, request: HttpRequest, **kwargs):
-        with start_span(
+        with Hub.current.start_span(
             op="authentik.providers.oauth2.token.policy",
         ):
             user = self.user if self.user else get_anonymous_user()
@@ -166,24 +146,24 @@ class TokenParams:
                     client_id=self.provider.client_id,
                 )
                 raise TokenError("invalid_client")
-        self.__check_scopes()
+
         if self.grant_type == GRANT_TYPE_AUTHORIZATION_CODE:
-            with start_span(
+            with Hub.current.start_span(
                 op="authentik.providers.oauth2.post.parse.code",
             ):
                 self.__post_init_code(raw_code, request)
         elif self.grant_type == GRANT_TYPE_REFRESH_TOKEN:
-            with start_span(
+            with Hub.current.start_span(
                 op="authentik.providers.oauth2.post.parse.refresh",
             ):
                 self.__post_init_refresh(raw_token, request)
         elif self.grant_type in [GRANT_TYPE_CLIENT_CREDENTIALS, GRANT_TYPE_PASSWORD]:
-            with start_span(
+            with Hub.current.start_span(
                 op="authentik.providers.oauth2.post.parse.client_credentials",
             ):
                 self.__post_init_client_credentials(request)
         elif self.grant_type == GRANT_TYPE_DEVICE_CODE:
-            with start_span(
+            with Hub.current.start_span(
                 op="authentik.providers.oauth2.post.parse.device_code",
             ):
                 self.__post_init_device_code(request)
@@ -196,7 +176,42 @@ class TokenParams:
             LOGGER.warning("Missing authorization code")
             raise TokenError("invalid_grant")
 
-        self.__check_redirect_uri(request)
+        allowed_redirect_urls = self.provider.redirect_uris.split()
+        # At this point, no provider should have a blank redirect_uri, in case they do
+        # this will check an empty array and raise an error
+        try:
+            if not any(fullmatch(x, self.redirect_uri) for x in allowed_redirect_urls):
+                LOGGER.warning(
+                    "Invalid redirect uri (regex comparison)",
+                    redirect_uri=self.redirect_uri,
+                    expected=allowed_redirect_urls,
+                )
+                Event.new(
+                    EventAction.CONFIGURATION_ERROR,
+                    message="Invalid redirect URI used by provider",
+                    provider=self.provider,
+                    redirect_uri=self.redirect_uri,
+                    expected=allowed_redirect_urls,
+                ).from_http(request)
+                raise TokenError("invalid_client")
+        except RegexError as exc:
+            LOGGER.info("Failed to parse regular expression, checking directly", exc=exc)
+            if not any(x == self.redirect_uri for x in allowed_redirect_urls):
+                LOGGER.warning(
+                    "Invalid redirect uri (strict comparison)",
+                    redirect_uri=self.redirect_uri,
+                    expected=allowed_redirect_urls,
+                )
+                Event.new(
+                    EventAction.CONFIGURATION_ERROR,
+                    message="Invalid redirect_uri configured",
+                    provider=self.provider,
+                ).from_http(request)
+                raise TokenError("invalid_client")
+
+        # Check against forbidden schemes
+        if urlparse(self.redirect_uri).scheme in FORBIDDEN_URI_SCHEMES:
+            raise TokenError("invalid_request")
 
         self.authorization_code = AuthorizationCode.objects.filter(code=raw_code).first()
         if not self.authorization_code:
@@ -236,48 +251,6 @@ class TokenParams:
         if not self.authorization_code.code_challenge and self.code_verifier:
             raise TokenError("invalid_grant")
 
-    def __check_redirect_uri(self, request: HttpRequest):
-        allowed_redirect_urls = self.provider.redirect_uris
-        # At this point, no provider should have a blank redirect_uri, in case they do
-        # this will check an empty array and raise an error
-
-        match_found = False
-        for allowed in allowed_redirect_urls:
-            if allowed.matching_mode == RedirectURIMatchingMode.STRICT:
-                if self.redirect_uri == allowed.url:
-                    match_found = True
-                    break
-            if allowed.matching_mode == RedirectURIMatchingMode.REGEX:
-                try:
-                    if fullmatch(allowed.url, self.redirect_uri):
-                        match_found = True
-                        break
-                except RegexError as exc:
-                    LOGGER.warning(
-                        "Failed to parse regular expression",
-                        exc=exc,
-                        url=allowed.url,
-                        provider=self.provider,
-                    )
-                    Event.new(
-                        EventAction.CONFIGURATION_ERROR,
-                        message="Invalid redirect_uri configured",
-                        provider=self.provider,
-                    ).from_http(request)
-        if not match_found:
-            Event.new(
-                EventAction.CONFIGURATION_ERROR,
-                message="Invalid redirect URI used by provider",
-                provider=self.provider,
-                redirect_uri=self.redirect_uri,
-                expected=allowed_redirect_urls,
-            ).from_http(request)
-            raise TokenError("invalid_client")
-
-        # Check against forbidden schemes
-        if urlparse(self.redirect_uri).scheme in FORBIDDEN_URI_SCHEMES:
-            raise TokenError("invalid_request")
-
     def __post_init_refresh(self, raw_token: str, request: HttpRequest):
         if not raw_token:
             LOGGER.warning("Missing refresh token")
@@ -313,29 +286,11 @@ class TokenParams:
             raise TokenError("invalid_grant")
 
     def __post_init_client_credentials(self, request: HttpRequest):
-        # client_credentials flow with client assertion
         if request.POST.get(CLIENT_ASSERTION_TYPE, "") != "":
             return self.__post_init_client_credentials_jwt(request)
-        # authentik-custom-ish client credentials flow
-        if request.POST.get("username", "") != "":
-            return self.__post_init_client_credentials_creds(
-                request, request.POST.get("username"), request.POST.get("password")
-            )
-        # Standard method which creates an automatic user
-        if self.client_secret == self.provider.client_secret:
-            return self.__post_init_client_credentials_generated(request)
-        # Standard workaround method which stores username:password
-        # as client_secret
-        try:
-            user, _, password = b64decode(self.client_secret).decode("utf-8").partition(":")
-            return self.__post_init_client_credentials_creds(request, user, password)
-        except (ValueError, Error):
-            raise TokenError("invalid_grant") from None
-
-    def __post_init_client_credentials_creds(
-        self, request: HttpRequest, username: str, password: str
-    ):
         # Authenticate user based on credentials
+        username = request.POST.get("username")
+        password = request.POST.get("password")
         user = User.objects.filter(username=username).first()
         if not user:
             raise TokenError("invalid_grant")
@@ -361,82 +316,9 @@ class TokenParams:
                 PLAN_CONTEXT_APPLICATION: app,
             },
         ).from_http(request, user=user)
+        return None
 
-    def __validate_jwt_from_source(
-        self, assertion: str
-    ) -> tuple[dict, OAuthSource] | tuple[None, None]:
-        # Fully decode the JWT without verifying the signature, so we can get access to
-        # the header.
-        # Get the Key ID from the header, and use that to optimise our source query to only find
-        # sources that have a JWK for that Key ID
-        # The Key ID doesn't have a fixed format, but must match between an issued JWT
-        # and whatever is returned by the JWKS endpoint
-        try:
-            decode_unvalidated = PyJWT().decode_complete(
-                assertion, options={"verify_signature": False}
-            )
-        except (PyJWTError, ValueError, TypeError, AttributeError) as exc:
-            LOGGER.warning("failed to parse JWT for kid lookup", exc=exc)
-            raise TokenError("invalid_grant") from None
-        expected_kid = decode_unvalidated["header"]["kid"]
-        fallback_alg = decode_unvalidated["header"]["alg"]
-        token = source = None
-        for source in self.provider.jwt_federation_sources.filter(
-            oidc_jwks__keys__contains=[{"kid": expected_kid}]
-        ):
-            LOGGER.debug("verifying JWT with source", source=source.slug)
-            keys = source.oidc_jwks.get("keys", [])
-            for key in keys:
-                if key.get("kid") and key.get("kid") != expected_kid:
-                    continue
-                LOGGER.debug("verifying JWT with key", source=source.slug, key=key.get("kid"))
-                try:
-                    parsed_key = PyJWK.from_dict(key).key
-                    token = decode(
-                        assertion,
-                        parsed_key,
-                        algorithms=[key.get("alg")] if "alg" in key else [fallback_alg],
-                        options={
-                            "verify_aud": False,
-                        },
-                    )
-                # AttributeError is raised when the configured JWK is a private key
-                # and not a public key
-                except (PyJWTError, ValueError, TypeError, AttributeError) as exc:
-                    LOGGER.warning("failed to verify JWT", exc=exc, source=source.slug)
-        if token:
-            LOGGER.info("successfully verified JWT with source", source=source.slug)
-        return token, source
-
-    def __validate_jwt_from_provider(
-        self, assertion: str
-    ) -> tuple[dict, OAuth2Provider] | tuple[None, None]:
-        token = provider = _key = None
-        federated_token = AccessToken.objects.filter(
-            token=assertion, provider__in=self.provider.jwt_federation_providers.all()
-        ).first()
-        if federated_token:
-            _key, _alg = federated_token.provider.jwt_key
-            try:
-                token = decode(
-                    assertion,
-                    _key.public_key(),
-                    algorithms=[_alg],
-                    options={
-                        "verify_aud": False,
-                    },
-                )
-                provider = federated_token.provider
-                self.user = federated_token.user
-            except (PyJWTError, ValueError, TypeError, AttributeError) as exc:
-                LOGGER.warning(
-                    "failed to verify JWT", exc=exc, provider=federated_token.provider.name
-                )
-
-        if token:
-            LOGGER.info("successfully verified JWT with provider", provider=provider.name)
-        return token, provider
-
+    # pylint: disable=too-many-locals
     def __post_init_client_credentials_jwt(self, request: HttpRequest):
         assertion_type = request.POST.get(CLIENT_ASSERTION_TYPE, "")
         if assertion_type != CLIENT_ASSERTION_TYPE_JWT:
@@ -449,15 +331,52 @@ class TokenParams:
             LOGGER.warning("Missing client assertion")
             raise TokenError("invalid_grant")
 
-        source = provider = None
+        token = None
 
-        token, source = self.__validate_jwt_from_source(assertion)
-        if not token:
-            token, provider = self.__validate_jwt_from_provider(assertion)
+        source: Optional[OAuthSource] = None
+        parsed_key: Optional[PyJWK] = None
+
+        # Fully decode the JWT without verifying the signature, so we can get access to
+        # the header.
+        # Get the Key ID from the header, and use that to optimise our source query to only find
+        # sources that have a JWK for that Key ID
+        # The Key ID doesn't have a fixed format, but must match between an issued JWT
+        # and whatever is returned by the JWKS endpoint
+        try:
+            decode_unvalidated = PyJWT().decode_complete(
+                assertion, options={"verify_signature": False}
+            )
+        except (PyJWTError, ValueError, TypeError, AttributeError) as exc:
+            LOGGER.warning("failed to parse JWT for kid lookup", exc=exc)
+            raise TokenError("invalid_grant")
+        expected_kid = decode_unvalidated["header"]["kid"]
+        for source in self.provider.jwks_sources.filter(
+            oidc_jwks__keys__contains=[{"kid": expected_kid}]
+        ):
+            LOGGER.debug("verifying JWT with source", source=source.slug)
+            keys = source.oidc_jwks.get("keys", [])
+            for key in keys:
+                LOGGER.debug("verifying JWT with key", source=source.slug, key=key.get("kid"))
+                try:
+                    parsed_key = PyJWK.from_dict(key)
+                    token = decode(
+                        assertion,
+                        parsed_key.key,
+                        algorithms=[key.get("alg")],
+                        options={
+                            "verify_aud": False,
+                        },
+                    )
+                # AttributeError is raised when the configured JWK is a private key
+                # and not a public key
+                except (PyJWTError, ValueError, TypeError, AttributeError) as exc:
+                    LOGGER.warning("failed to verify JWT", exc=exc, source=source.slug)
 
         if not token:
             LOGGER.warning("No token could be verified")
             raise TokenError("invalid_grant")
+
+        LOGGER.info("successfully verified JWT with source", source=source.slug)
 
         if "exp" in token:
             exp = datetime.fromtimestamp(token["exp"])
@@ -472,50 +391,20 @@ class TokenParams:
             raise TokenError("invalid_grant")
 
         self.__check_policy_access(app, request, oauth_jwt=token)
-        if not provider:
-            self.__create_user_from_jwt(token, app, source)
+        self.__create_user_from_jwt(token, app, source)
 
         method_args = {
             "jwt": token,
         }
         if source:
             method_args["source"] = source
-        if provider:
-            method_args["provider"] = provider
+        if parsed_key:
+            method_args["jwk_id"] = parsed_key.key_id
         Event.new(
             action=EventAction.LOGIN,
             **{
                 PLAN_CONTEXT_METHOD: "jwt",
                 PLAN_CONTEXT_METHOD_ARGS: method_args,
-                PLAN_CONTEXT_APPLICATION: app,
-            },
-        ).from_http(request, user=self.user)
-
-    def __post_init_client_credentials_generated(self, request: HttpRequest):
-        # Authorize user access
-        app = Application.objects.filter(provider=self.provider).first()
-        if not app or not app.provider:
-            raise TokenError("invalid_grant")
-        with audit_ignore():
-            self.user, _ = User.objects.update_or_create(
-                # trim username to ensure the entire username is max 150 chars
-                # (22 chars being the length of the "template")
-                username=f"ak-{self.provider.name[:150-22]}-client_credentials",
-                defaults={
-                    "last_login": timezone.now(),
-                    "name": f"Autogenerated user from application {app.name} (client credentials)",
-                    "path": f"{USER_PATH_SYSTEM_PREFIX}/apps/{app.slug}",
-                    "type": UserTypes.SERVICE_ACCOUNT,
-                },
-            )
-            self.user.attributes[USER_ATTRIBUTE_GENERATED] = True
-            self.user.save()
-        self.__check_policy_access(app, request)
-
-        Event.new(
-            action=EventAction.LOGIN,
-            **{
-                PLAN_CONTEXT_METHOD: "oauth_client_secret",
                 PLAN_CONTEXT_APPLICATION: app,
             },
         ).from_http(request, user=self.user)
@@ -529,38 +418,35 @@ class TokenParams:
 
     def __create_user_from_jwt(self, token: dict[str, Any], app: Application, source: OAuthSource):
         """Create user from JWT"""
-        with audit_ignore():
-            self.user, created = User.objects.update_or_create(
-                username=f"{self.provider.name}-{token.get('sub')}",
-                defaults={
-                    "last_login": timezone.now(),
-                    "name": (
-                        f"Autogenerated user from application {app.name} (client credentials JWT)"
-                    ),
-                    "path": source.get_user_path(),
-                    "type": UserTypes.SERVICE_ACCOUNT,
+        exp = token.get("exp")
+        self.user, created = User.objects.update_or_create(
+            username=f"{self.provider.name}-{token.get('sub')}",
+            defaults={
+                "attributes": {
+                    USER_ATTRIBUTE_GENERATED: True,
                 },
-            )
-            self.user.attributes[USER_ATTRIBUTE_GENERATED] = True
+                "last_login": timezone.now(),
+                "name": f"Autogenerated user from application {app.name} (client credentials JWT)",
+                "path": source.get_user_path(),
+            },
+        )
+        if created and exp:
+            self.user.attributes[USER_ATTRIBUTE_EXPIRES] = exp
             self.user.save()
-            exp = token.get("exp")
-            if created and exp:
-                self.user.attributes[USER_ATTRIBUTE_EXPIRES] = exp
-                self.user.save()
 
 
 @method_decorator(csrf_exempt, name="dispatch")
 class TokenView(View):
     """Generate tokens for clients"""
 
-    provider: OAuth2Provider | None = None
-    params: TokenParams | None = None
+    provider: Optional[OAuth2Provider] = None
+    params: Optional[TokenParams] = None
 
     def dispatch(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
         response = super().dispatch(request, *args, **kwargs)
         allowed_origins = []
         if self.provider:
-            allowed_origins = [x.url for x in self.provider.redirect_uris]
+            allowed_origins = self.provider.redirect_uris.split("\n")
         cors_allow(self.request, response, *allowed_origins)
         return response
 
@@ -570,7 +456,7 @@ class TokenView(View):
     def post(self, request: HttpRequest) -> HttpResponse:
         """Generate tokens for clients"""
         try:
-            with start_span(
+            with Hub.current.start_span(
                 op="authentik.providers.oauth2.post.parse",
             ):
                 client_id, client_secret = extract_client_auth(request)
@@ -581,7 +467,7 @@ class TokenView(View):
                 CTX_AUTH_VIA.set("oauth_client_secret")
                 self.params = TokenParams.parse(request, self.provider, client_id, client_secret)
 
-            with start_span(
+            with Hub.current.start_span(
                 op="authentik.providers.oauth2.post.response",
             ):
                 if self.params.grant_type == GRANT_TYPE_AUTHORIZATION_CODE:
@@ -613,7 +499,7 @@ class TokenView(View):
             # Keep same scopes as previous token
             scope=self.params.authorization_code.scope,
             auth_time=self.params.authorization_code.auth_time,
-            session=self.params.authorization_code.session,
+            session_id=self.params.authorization_code.session_id,
         )
         access_id_token = IDToken.new(
             self.provider,
@@ -627,7 +513,6 @@ class TokenView(View):
         response = {
             "access_token": access_token.token,
             "token_type": TOKEN_TYPE,
-            "scope": " ".join(access_token.scope),
             "expires_in": int(
                 timedelta_from_string(self.provider.access_token_validity).total_seconds()
             ),
@@ -642,7 +527,7 @@ class TokenView(View):
                 expires=refresh_token_expiry,
                 provider=self.provider,
                 auth_time=self.params.authorization_code.auth_time,
-                session=self.params.authorization_code.session,
+                session_id=self.params.authorization_code.session_id,
             )
             id_token = IDToken.new(
                 self.provider,
@@ -675,7 +560,7 @@ class TokenView(View):
             # Keep same scopes as previous token
             scope=self.params.refresh_token.scope,
             auth_time=self.params.refresh_token.auth_time,
-            session=self.params.refresh_token.session,
+            session_id=self.params.refresh_token.session_id,
         )
         access_token.id_token = IDToken.new(
             self.provider,
@@ -691,7 +576,7 @@ class TokenView(View):
             expires=refresh_token_expiry,
             provider=self.provider,
             auth_time=self.params.refresh_token.auth_time,
-            session=self.params.refresh_token.session,
+            session_id=self.params.refresh_token.session_id,
         )
         id_token = IDToken.new(
             self.provider,
@@ -711,11 +596,10 @@ class TokenView(View):
             "access_token": access_token.token,
             "refresh_token": refresh_token.token,
             "token_type": TOKEN_TYPE,
-            "scope": " ".join(access_token.scope),
             "expires_in": int(
                 timedelta_from_string(self.provider.access_token_validity).total_seconds()
             ),
-            "id_token": access_token.id_token.to_jwt(self.provider),
+            "id_token": id_token.to_jwt(self.provider),
         }
 
     def create_client_credentials_response(self) -> dict[str, Any]:
@@ -738,7 +622,6 @@ class TokenView(View):
         return {
             "access_token": access_token.token,
             "token_type": TOKEN_TYPE,
-            "scope": " ".join(access_token.scope),
             "expires_in": int(
                 timedelta_from_string(self.provider.access_token_validity).total_seconds()
             ),
@@ -751,14 +634,13 @@ class TokenView(View):
             raise DeviceCodeError("authorization_pending")
         now = timezone.now()
         access_token_expiry = now + timedelta_from_string(self.provider.access_token_validity)
-        auth_event = get_login_event(self.params.device_code.session)
+        auth_event = get_login_event(self.request)
         access_token = AccessToken(
             provider=self.provider,
             user=self.params.device_code.user,
             expires=access_token_expiry,
             scope=self.params.device_code.scope,
             auth_time=auth_event.created if auth_event else now,
-            session=self.params.device_code.session,
         )
         access_token.id_token = IDToken.new(
             self.provider,
@@ -770,14 +652,13 @@ class TokenView(View):
         response = {
             "access_token": access_token.token,
             "token_type": TOKEN_TYPE,
-            "scope": " ".join(access_token.scope),
             "expires_in": int(
                 timedelta_from_string(self.provider.access_token_validity).total_seconds()
             ),
             "id_token": access_token.id_token.to_jwt(self.provider),
         }
 
-        if SCOPE_OFFLINE_ACCESS in self.params.device_code.scope:
+        if SCOPE_OFFLINE_ACCESS in self.params.scope:
             refresh_token_expiry = now + timedelta_from_string(self.provider.refresh_token_validity)
             refresh_token = RefreshToken(
                 user=self.params.device_code.user,

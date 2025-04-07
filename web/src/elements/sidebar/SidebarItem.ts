@@ -117,11 +117,19 @@ export class SidebarItem extends AKElement {
         if (!this.path) {
             return false;
         }
-
-        const ourPath = this.path.split(";")[0];
-        const pathIsWholePath = new RegExp(`^${ourPath}$`).test(path);
-        const pathIsAnActivePath = this.activeMatchers.some((v) => v.test(path));
-        return pathIsWholePath || pathIsAnActivePath;
+        if (this.path) {
+            const ourPath = this.path.split(";")[0];
+            if (new RegExp(`^${ourPath}$`).exec(path)) {
+                return true;
+            }
+        }
+        return this.activeMatchers.some((v) => {
+            const match = v.exec(path);
+            if (match !== null) {
+                return true;
+            }
+            return false;
+        });
     }
 
     expandParentRecursive(activePath: string, item: SidebarItem): void {
@@ -200,7 +208,7 @@ export class SidebarItem extends AKElement {
     }
 
     renderWithLabel() {
-        return html`
+        html`
             <span class="pf-c-nav__link">
                 <slot name="label"></slot>
             </span>
@@ -215,11 +223,5 @@ export class SidebarItem extends AKElement {
         return html`<li class="pf-c-nav__item">
             ${this.path ? this.renderWithPath() : this.renderWithLabel()}
         </li>`;
-    }
-}
-
-declare global {
-    interface HTMLElementTagNameMap {
-        "ak-sidebar-item": SidebarItem;
     }
 }

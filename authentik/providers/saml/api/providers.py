@@ -16,7 +16,6 @@ from rest_framework.decorators import action
 from rest_framework.fields import CharField, FileField, SerializerMethodField
 from rest_framework.parsers import MultiPartParser
 from rest_framework.permissions import AllowAny
-from rest_framework.renderers import BaseRenderer, JSONRenderer
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.serializers import PrimaryKeyRelatedField, ValidationError
@@ -39,16 +38,6 @@ from authentik.sources.saml.processors.constants import SAML_BINDING_POST, SAML_
 LOGGER = get_logger()
 
 
-class RawXMLDataRenderer(BaseRenderer):
-    """Renderer to allow application/xml as value for 'Accept' in the metadata endpoint."""
-
-    media_type = "application/xml"
-    format = "xml"
-
-    def render(self, data, accepted_media_type=None, renderer_context=None):
-        return data
-
-
 class SAMLProviderSerializer(ProviderSerializer):
     """SAMLProvider Serializer"""
 
@@ -65,23 +54,9 @@ class SAMLProviderSerializer(ProviderSerializer):
         if "request" not in self._context:
             return ""
         request: HttpRequest = self._context["request"]._request
-        try:
-            return request.build_absolute_uri(
-                reverse(
-                    "authentik_providers_saml:metadata-download",
-                    kwargs={"application_slug": instance.application.slug},
-                )
-            )
-        except Provider.application.RelatedObjectDoesNotExist:
-            return request.build_absolute_uri(
-                reverse(
-                    "authentik_api:samlprovider-metadata",
-                    kwargs={
-                        "pk": instance.pk,
-                    },
-                )
-                + "?download"
-            )
+        return request.build_absolute_uri(
+            reverse("authentik_api:samlprovider-metadata", kwargs={"pk": instance.pk}) + "?download"
+        )
 
     def get_url_sso_post(self, instance: SAMLProvider) -> str:
         """Get SSO Post URL"""
@@ -95,7 +70,7 @@ class SAMLProviderSerializer(ProviderSerializer):
                     kwargs={"application_slug": instance.application.slug},
                 )
             )
-        except Provider.application.RelatedObjectDoesNotExist:
+        except Provider.application.RelatedObjectDoesNotExist:  # pylint: disable=no-member
             return "-"
 
     def get_url_sso_redirect(self, instance: SAMLProvider) -> str:
@@ -110,7 +85,7 @@ class SAMLProviderSerializer(ProviderSerializer):
                     kwargs={"application_slug": instance.application.slug},
                 )
             )
-        except Provider.application.RelatedObjectDoesNotExist:
+        except Provider.application.RelatedObjectDoesNotExist:  # pylint: disable=no-member
             return "-"
 
     def get_url_sso_init(self, instance: SAMLProvider) -> str:
@@ -125,7 +100,7 @@ class SAMLProviderSerializer(ProviderSerializer):
                     kwargs={"application_slug": instance.application.slug},
                 )
             )
-        except Provider.application.RelatedObjectDoesNotExist:
+        except Provider.application.RelatedObjectDoesNotExist:  # pylint: disable=no-member
             return "-"
 
     def get_url_slo_post(self, instance: SAMLProvider) -> str:
@@ -140,7 +115,7 @@ class SAMLProviderSerializer(ProviderSerializer):
                     kwargs={"application_slug": instance.application.slug},
                 )
             )
-        except Provider.application.RelatedObjectDoesNotExist:
+        except Provider.application.RelatedObjectDoesNotExist:  # pylint: disable=no-member
             return "-"
 
     def get_url_slo_redirect(self, instance: SAMLProvider) -> str:
@@ -155,19 +130,8 @@ class SAMLProviderSerializer(ProviderSerializer):
                     kwargs={"application_slug": instance.application.slug},
                 )
             )
-        except Provider.application.RelatedObjectDoesNotExist:
+        except Provider.application.RelatedObjectDoesNotExist:  # pylint: disable=no-member
             return "-"
-
-    def validate(self, attrs: dict):
-        if attrs.get("signing_kp"):
-            if not attrs.get("sign_assertion") and not attrs.get("sign_response"):
-                raise ValidationError(
-                    _(
-                        "With a signing keypair selected, at least one of 'Sign assertion' "
-                        "and 'Sign Response' must be selected."
-                    )
-                )
-        return super().validate(attrs)
 
     class Meta:
         model = SAMLProvider
@@ -180,14 +144,10 @@ class SAMLProviderSerializer(ProviderSerializer):
             "session_valid_not_on_or_after",
             "property_mappings",
             "name_id_mapping",
-            "authn_context_class_ref_mapping",
             "digest_algorithm",
             "signature_algorithm",
             "signing_kp",
             "verification_kp",
-            "encryption_kp",
-            "sign_assertion",
-            "sign_response",
             "sp_binding",
             "default_relay_state",
             "url_download_metadata",
@@ -213,9 +173,6 @@ class SAMLProviderImportSerializer(PassiveSerializer):
     name = CharField(required=True)
     authorization_flow = PrimaryKeyRelatedField(
         queryset=Flow.objects.filter(designation=FlowDesignation.AUTHORIZATION),
-    )
-    invalidation_flow = PrimaryKeyRelatedField(
-        queryset=Flow.objects.filter(designation=FlowDesignation.INVALIDATION),
     )
     file = FileField()
 
@@ -250,28 +207,16 @@ class SAMLProviderViewSet(UsedByMixin, ModelViewSet):
                 ],
                 description="Optionally force the metadata to only include one binding.",
             ),
-            # Explicitly excluded, because otherwise spectacular automatically
-            # add it when using multiple renderer_classes
-            OpenApiParameter(
-                name="format",
-                exclude=True,
-                required=False,
-            ),
         ],
     )
-    @action(
-        methods=["GET"],
-        detail=True,
-        permission_classes=[AllowAny],
-        renderer_classes=[JSONRenderer, RawXMLDataRenderer],
-    )
+    @action(methods=["GET"], detail=True, permission_classes=[AllowAny])
     def metadata(self, request: Request, pk: int) -> Response:
         """Return metadata as XML string"""
         # We don't use self.get_object() on purpose as this view is un-authenticated
         try:
             provider = get_object_or_404(SAMLProvider, pk=pk)
         except ValueError:
-            raise Http404 from None
+            raise Http404
         try:
             proc = MetadataProcessor(provider, request)
             proc.force_binding = request.query_params.get("force_binding", None)
@@ -282,9 +227,9 @@ class SAMLProviderViewSet(UsedByMixin, ModelViewSet):
                     f'attachment; filename="{provider.name}_authentik_meta.xml"'
                 )
                 return response
-            return Response({"metadata": metadata}, content_type="application/json")
-        except Provider.application.RelatedObjectDoesNotExist:
-            return Response({"metadata": ""}, content_type="application/json")
+            return Response({"metadata": metadata})
+        except Provider.application.RelatedObjectDoesNotExist:  # pylint: disable=no-member
+            return Response({"metadata": ""})
 
     @permission_required(
         None,
@@ -313,20 +258,18 @@ class SAMLProviderViewSet(UsedByMixin, ModelViewSet):
         try:
             fromstring(file.read())
         except ParseError:
-            raise ValidationError(_("Invalid XML Syntax")) from None
+            raise ValidationError(_("Invalid XML Syntax"))
         file.seek(0)
         try:
             metadata = ServiceProviderMetadataParser().parse(file.read().decode())
             metadata.to_provider(
-                data.validated_data["name"],
-                data.validated_data["authorization_flow"],
-                data.validated_data["invalidation_flow"],
+                data.validated_data["name"], data.validated_data["authorization_flow"]
             )
         except ValueError as exc:  # pragma: no cover
             LOGGER.warning(str(exc))
             raise ValidationError(
-                _("Failed to import Metadata: {messages}".format_map({"messages": str(exc)})),
-            ) from None
+                _("Failed to import Metadata: %(message)s" % {"message": str(exc)}),
+            )
         return Response(status=204)
 
     @permission_required(
@@ -360,7 +303,7 @@ class SAMLProviderViewSet(UsedByMixin, ModelViewSet):
                 if not for_user:
                     raise ValidationError({"for_user": "User not found"})
             except ValueError:
-                raise ValidationError({"for_user": "input must be numerical"}) from None
+                raise ValidationError({"for_user": "input must be numerical"})
 
         new_request = copy(request._request)
         new_request.user = for_user

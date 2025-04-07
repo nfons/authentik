@@ -11,14 +11,7 @@ from authentik.core.models import Application
 from authentik.core.tests.utils import create_test_admin_user, create_test_cert, create_test_flow
 from authentik.events.models import Event, EventAction
 from authentik.lib.generators import generate_id
-from authentik.providers.oauth2.models import (
-    AccessToken,
-    IDToken,
-    OAuth2Provider,
-    RedirectURI,
-    RedirectURIMatchingMode,
-    ScopeMapping,
-)
+from authentik.providers.oauth2.models import AccessToken, IDToken, OAuth2Provider, ScopeMapping
 from authentik.providers.oauth2.tests.utils import OAuthTestCase
 
 
@@ -32,7 +25,7 @@ class TestUserinfo(OAuthTestCase):
         self.provider: OAuth2Provider = OAuth2Provider.objects.create(
             name=generate_id(),
             authorization_flow=create_test_flow(),
-            redirect_uris=[RedirectURI(RedirectURIMatchingMode.STRICT, "")],
+            redirect_uris="",
             signing_key=create_test_cert(),
         )
         self.provider.property_mappings.set(ScopeMapping.objects.all())

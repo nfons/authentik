@@ -5,6 +5,7 @@ import "@goauthentik/components/events/ObjectChangelog";
 import { AKElement } from "@goauthentik/elements/Base";
 import "@goauthentik/elements/CodeMirror";
 import "@goauthentik/elements/EmptyState";
+import "@goauthentik/elements/Markdown";
 import "@goauthentik/elements/PageHeader";
 import "@goauthentik/elements/Tabs";
 import "@goauthentik/elements/buttons/ModalButton";
@@ -107,11 +108,5 @@ export class AdminSettingsPage extends AKElement {
                 </div>
             </section>
         `;
-    }
-}
-
-declare global {
-    interface HTMLElementTagNameMap {
-        "ak-admin-settings": AdminSettingsPage;
     }
 }

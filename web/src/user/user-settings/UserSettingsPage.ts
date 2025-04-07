@@ -1,10 +1,10 @@
+import "@goauthentik/app/elements/user/sources/SourceSettings";
 import { DEFAULT_CONFIG } from "@goauthentik/common/api/config";
 import { EVENT_REFRESH } from "@goauthentik/common/constants";
 import { AKElement, rootInterface } from "@goauthentik/elements/Base";
 import "@goauthentik/elements/Tabs";
 import "@goauthentik/elements/user/SessionList";
 import "@goauthentik/elements/user/UserConsentList";
-import "@goauthentik/elements/user/sources/SourceSettings";
 import { UserInterface } from "@goauthentik/user/UserInterface";
 import "@goauthentik/user/user-settings/details/UserPassword";
 import "@goauthentik/user/user-settings/details/UserSettingsFlowExecutor";
@@ -58,10 +58,6 @@ export class UserSettingsPage extends AKElement {
                 }
                 :host([theme="dark"]) .pf-c-page__main-section {
                     --pf-c-page__main-section--BackgroundColor: transparent;
-                }
-                .pf-c-page__main {
-                    min-height: 100vh;
-                    overflow-y: auto;
                 }
                 @media screen and (min-width: 1200px) {
                     :host {
@@ -184,11 +180,5 @@ export class UserSettingsPage extends AKElement {
                 </ak-tabs>
             </main>
         </div>`;
-    }
-}
-
-declare global {
-    interface HTMLElementTagNameMap {
-        "ak-user-settings": UserSettingsPage;
     }
 }

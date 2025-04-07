@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 
 # Stage 1: Build website
-FROM --platform=${BUILDPLATFORM} docker.io/library/node:22 AS website-builder
+FROM --platform=${BUILDPLATFORM} docker.io/node:21 as website-builder
 
 ENV NODE_ENV=production
 
@@ -14,28 +14,22 @@ RUN --mount=type=bind,target=/work/website/package.json,src=./website/package.js
 
 COPY ./website /work/website/
 COPY ./blueprints /work/blueprints/
-COPY ./schema.yml /work/
 COPY ./SECURITY.md /work/
 
-RUN npm run build-bundled
+RUN npm run build-docs-only
 
 # Stage 2: Build webui
-FROM --platform=${BUILDPLATFORM} docker.io/library/node:22 AS web-builder
+FROM --platform=${BUILDPLATFORM} docker.io/node:21 as web-builder
 
-ARG GIT_BUILD_HASH
-ENV GIT_BUILD_HASH=$GIT_BUILD_HASH
 ENV NODE_ENV=production
 
 WORKDIR /work/web
 
 RUN --mount=type=bind,target=/work/web/package.json,src=./web/package.json \
     --mount=type=bind,target=/work/web/package-lock.json,src=./web/package-lock.json \
-    --mount=type=bind,target=/work/web/packages/sfe/package.json,src=./web/packages/sfe/package.json \
-    --mount=type=bind,target=/work/web/scripts,src=./web/scripts \
     --mount=type=cache,id=npm-web,sharing=shared,target=/root/.npm \
     npm ci --include=dev
 
-COPY ./package.json /work
 COPY ./web /work/web/
 COPY ./website /work/website/
 COPY ./gen-ts-api /work/web/node_modules/@goauthentik/api
@@ -43,7 +37,7 @@ COPY ./gen-ts-api /work/web/node_modules/@goauthentik/api
 RUN npm run build
 
 # Stage 3: Build go proxy
-FROM --platform=${BUILDPLATFORM} docker.io/library/golang:1.24-bookworm AS go-builder
+FROM --platform=${BUILDPLATFORM} docker.io/golang:1.22.0-bookworm AS go-builder
 
 ARG TARGETOS
 ARG TARGETARCH
@@ -53,11 +47,6 @@ ARG GOOS=$TARGETOS
 ARG GOARCH=$TARGETARCH
 
 WORKDIR /go/src/goauthentik.io
-
-RUN --mount=type=cache,id=apt-$TARGETARCH$TARGETVARIANT,sharing=locked,target=/var/cache/apt \
-    dpkg --add-architecture arm64 && \
-    apt-get update && \
-    apt-get install -y --no-install-recommends crossbuild-essential-arm64 gcc-aarch64-linux-gnu
 
 RUN --mount=type=bind,target=/go/src/goauthentik.io/go.mod,src=./go.mod \
     --mount=type=bind,target=/go/src/goauthentik.io/go.sum,src=./go.sum \
@@ -73,17 +62,17 @@ COPY ./internal /go/src/goauthentik.io/internal
 COPY ./go.mod /go/src/goauthentik.io/go.mod
 COPY ./go.sum /go/src/goauthentik.io/go.sum
 
+ENV CGO_ENABLED=0
+
 RUN --mount=type=cache,sharing=locked,target=/go/pkg/mod \
     --mount=type=cache,id=go-build-$TARGETARCH$TARGETVARIANT,sharing=locked,target=/root/.cache/go-build \
-    if [ "$TARGETARCH" = "arm64" ]; then export CC=aarch64-linux-gnu-gcc && export CC_FOR_TARGET=gcc-aarch64-linux-gnu; fi && \
-    CGO_ENABLED=1 GOFIPS140=latest GOARM="${TARGETVARIANT#v}" \
-    go build -o /go/authentik ./cmd/server
+    GOARM="${TARGETVARIANT#v}" go build -o /go/authentik ./cmd/server
 
 # Stage 4: MaxMind GeoIP
-FROM --platform=${BUILDPLATFORM} ghcr.io/maxmind/geoipupdate:v7.1.0 AS geoip
+FROM --platform=${BUILDPLATFORM} ghcr.io/maxmind/geoipupdate:v6.1 as geoip
 
 ENV GEOIPUPDATE_EDITION_IDS="GeoLite2-City GeoLite2-ASN"
-ENV GEOIPUPDATE_VERBOSE="1"
+ENV GEOIPUPDATE_VERBOSE="true"
 ENV GEOIPUPDATE_ACCOUNT_ID_FILE="/run/secrets/GEOIPUPDATE_ACCOUNT_ID"
 ENV GEOIPUPDATE_LICENSE_KEY_FILE="/run/secrets/GEOIPUPDATE_LICENSE_KEY"
 
@@ -93,80 +82,53 @@ RUN --mount=type=secret,id=GEOIPUPDATE_ACCOUNT_ID \
     mkdir -p /usr/share/GeoIP && \
     /bin/sh -c "/usr/bin/entry.sh || echo 'Failed to get GeoIP database, disabling'; exit 0"
 
-# Stage 5: Download uv
-FROM ghcr.io/astral-sh/uv:0.6.12 AS uv
-# Stage 6: Base python image
-FROM ghcr.io/goauthentik/fips-python:3.12.9-slim-bookworm-fips AS python-base
+# Stage 5: Python dependencies
+FROM docker.io/python:3.12.2-slim-bookworm AS python-deps
 
-ENV VENV_PATH="/ak-root/.venv" \
-    PATH="/lifecycle:/ak-root/.venv/bin:$PATH" \
-    UV_COMPILE_BYTECODE=1 \
-    UV_LINK_MODE=copy \
-    UV_NATIVE_TLS=1 \
-    UV_PYTHON_DOWNLOADS=0
+WORKDIR /ak-root/poetry
 
-WORKDIR /ak-root/
-
-COPY --from=uv /uv /uvx /bin/
-
-# Stage 7: Python dependencies
-FROM python-base AS python-deps
-
-ARG TARGETARCH
-ARG TARGETVARIANT
+ENV VENV_PATH="/ak-root/venv" \
+    POETRY_VIRTUALENVS_CREATE=false \
+    PATH="/ak-root/venv/bin:$PATH"
 
 RUN rm -f /etc/apt/apt.conf.d/docker-clean; echo 'Binary::apt::APT::Keep-Downloaded-Packages "true";' > /etc/apt/apt.conf.d/keep-cache
-
-ENV PATH="/root/.cargo/bin:$PATH"
 
 RUN --mount=type=cache,id=apt-$TARGETARCH$TARGETVARIANT,sharing=locked,target=/var/cache/apt \
     apt-get update && \
     # Required for installing pip packages
-    apt-get install -y --no-install-recommends \
-    # Build essentials
-    build-essential pkg-config libffi-dev git \
-    # cryptography
-    curl \
-    # libxml
-    libxslt-dev zlib1g-dev \
-    # postgresql
-    libpq-dev \
-    # python-kadmin-rs
-    clang libkrb5-dev sccache \
-    # xmlsec
-    libltdl-dev && \
-    curl https://sh.rustup.rs -sSf | sh -s -- -y
+    apt-get install -y --no-install-recommends build-essential pkg-config libxmlsec1-dev zlib1g-dev libpq-dev
 
-ENV UV_NO_BINARY_PACKAGE="cryptography lxml python-kadmin-rs xmlsec"
+RUN --mount=type=bind,target=./pyproject.toml,src=./pyproject.toml \
+    --mount=type=bind,target=./poetry.lock,src=./poetry.lock \
+    --mount=type=cache,target=/root/.cache/pip \
+    --mount=type=cache,target=/root/.cache/pypoetry \
+    python -m venv /ak-root/venv/ && \
+    bash -c "source ${VENV_PATH}/bin/activate && \
+        pip3 install --upgrade pip && \
+        pip3 install poetry && \
+        poetry install --only=main --no-ansi --no-interaction --no-root"
 
-RUN --mount=type=bind,target=pyproject.toml,src=pyproject.toml \
-    --mount=type=bind,target=uv.lock,src=uv.lock \
-    --mount=type=cache,target=/root/.cache/uv \
-    uv sync --frozen --no-install-project --no-dev
+# Stage 6: Run
+FROM docker.io/python:3.12.2-slim-bookworm AS final-image
 
-# Stage 8: Run
-FROM python-base AS final-image
-
-ARG VERSION
 ARG GIT_BUILD_HASH
+ARG VERSION
 ENV GIT_BUILD_HASH=$GIT_BUILD_HASH
 
-LABEL org.opencontainers.image.url=https://goauthentik.io
-LABEL org.opencontainers.image.description="goauthentik.io Main server image, see https://goauthentik.io for more info."
-LABEL org.opencontainers.image.source=https://github.com/goauthentik/authentik
-LABEL org.opencontainers.image.version=${VERSION}
-LABEL org.opencontainers.image.revision=${GIT_BUILD_HASH}
+LABEL org.opencontainers.image.url https://goauthentik.io
+LABEL org.opencontainers.image.description goauthentik.io Main server image, see https://goauthentik.io for more info.
+LABEL org.opencontainers.image.source https://github.com/goauthentik/authentik
+LABEL org.opencontainers.image.version ${VERSION}
+LABEL org.opencontainers.image.revision ${GIT_BUILD_HASH}
 
 WORKDIR /
 
 # We cannot cache this layer otherwise we'll end up with a bigger image
 RUN apt-get update && \
-    apt-get upgrade -y && \
     # Required for runtime
-    apt-get install -y --no-install-recommends libpq5 libmaxminddb0 ca-certificates libkrb5-3 libkadm5clnt-mit12 libkdb5-10 libltdl7 libxslt1.1 && \
+    apt-get install -y --no-install-recommends libpq5 openssl libxmlsec1-openssl libmaxminddb0 ca-certificates && \
     # Required for bootstrap & healtcheck
     apt-get install -y --no-install-recommends runit && \
-    pip3 install --no-cache-dir --upgrade pip && \
     apt-get clean && \
     rm -rf /tmp/* /var/lib/apt/lists/* /var/tmp/ && \
     adduser --system --no-create-home --uid 1000 --group --home /authentik authentik && \
@@ -177,19 +139,18 @@ RUN apt-get update && \
 
 COPY ./authentik/ /authentik
 COPY ./pyproject.toml /
-COPY ./uv.lock /
+COPY ./poetry.lock /
 COPY ./schemas /schemas
 COPY ./locale /locale
 COPY ./tests /tests
 COPY ./manage.py /
 COPY ./blueprints /blueprints
 COPY ./lifecycle/ /lifecycle
-COPY ./authentik/sources/kerberos/krb5.conf /etc/krb5.conf
 COPY --from=go-builder /go/authentik /bin/authentik
-COPY --from=python-deps /ak-root/.venv /ak-root/.venv
+COPY --from=python-deps /ak-root/venv /ak-root/venv
 COPY --from=web-builder /work/web/dist/ /web/dist/
 COPY --from=web-builder /work/web/authentik/ /web/authentik/
-COPY --from=website-builder /work/website/build/ /website/help/
+COPY --from=website-builder /work/website/help/ /website/help/
 COPY --from=geoip /usr/share/GeoIP /geoip
 
 USER 1000
@@ -197,7 +158,9 @@ USER 1000
 ENV TMPDIR=/dev/shm/ \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    GOFIPS=1
+    PATH="/ak-root/venv/bin:/lifecycle:$PATH" \
+    VENV_PATH="/ak-root/venv" \
+    POETRY_VIRTUALENVS_CREATE=false
 
 HEALTHCHECK --interval=30s --timeout=30s --start-period=60s --retries=3 CMD [ "ak", "healthcheck" ]
 

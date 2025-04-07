@@ -1,10 +1,10 @@
+import { DataProvider, DualSelectPair } from "@goauthentik/app/elements/ak-dual-select/types";
 import { DEFAULT_CONFIG } from "@goauthentik/common/api/config";
 import { docLink } from "@goauthentik/common/global";
 import { groupBy } from "@goauthentik/common/utils";
 import "@goauthentik/elements/CodeMirror";
 import { CodeMirrorMode } from "@goauthentik/elements/CodeMirror";
 import "@goauthentik/elements/ak-dual-select/ak-dual-select-provider";
-import { DataProvider, DualSelectPair } from "@goauthentik/elements/ak-dual-select/types";
 import "@goauthentik/elements/forms/FormGroup";
 import "@goauthentik/elements/forms/HorizontalFormElement";
 import { ModelForm } from "@goauthentik/elements/forms/ModelForm";
@@ -97,8 +97,7 @@ export class OutpostForm extends ModelForm<Outpost, string> {
     embedded = false;
 
     @state()
-    providers: DataProvider = providerProvider(this.type);
-
+    providers?: DataProvider;
     defaultConfig?: OutpostDefaultConfig;
 
     async loadInstance(pk: string): Promise<Outpost> {
@@ -106,7 +105,6 @@ export class OutpostForm extends ModelForm<Outpost, string> {
             uuid: pk,
         });
         this.type = o.type || OutpostTypeEnum.Proxy;
-        this.providers = providerProvider(o.type);
         return o;
     }
 
@@ -212,11 +210,9 @@ export class OutpostForm extends ModelForm<Outpost, string> {
                     )}
                 </p>
                 <p class="pf-c-form__helper-text">
-                    <a
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        href="${docLink("/docs/add-secure-apps/outposts?utm_source=authentik")}"
-                        >${msg("See documentation")}</a
+                    See
+                    <a target="_blank" href="${docLink("/docs/outposts?utm_source=authentik")}"
+                        >documentation</a
                     >.
                 </p>
             </ak-form-element-horizontal>
@@ -232,7 +228,7 @@ export class OutpostForm extends ModelForm<Outpost, string> {
                     selected-label="${msg("Selected Applications")}"
                 ></ak-dual-select-provider>
             </ak-form-element-horizontal>
-            <ak-form-group aria-label=${msg("Advanced settings")}>
+            <ak-form-group aria-label="Advanced settings">
                 <span slot="header"> ${msg("Advanced settings")} </span>
                 <div slot="body" class="pf-c-form">
                     <ak-form-element-horizontal label=${msg("Configuration")} name="config">
@@ -249,9 +245,8 @@ export class OutpostForm extends ModelForm<Outpost, string> {
                             ${msg("See more here:")}&nbsp;
                             <a
                                 target="_blank"
-                                rel="noopener noreferrer"
                                 href="${docLink(
-                                    "/docs/add-secure-apps/outposts?utm_source=authentik#configuration",
+                                    "/docs/outposts?utm_source=authentik#configuration",
                                 )}"
                                 >${msg("Documentation")}</a
                             >
@@ -259,11 +254,5 @@ export class OutpostForm extends ModelForm<Outpost, string> {
                     </ak-form-element-horizontal>
                 </div>
             </ak-form-group>`;
-    }
-}
-
-declare global {
-    interface HTMLElementTagNameMap {
-        "ak-outpost-form": OutpostForm;
     }
 }

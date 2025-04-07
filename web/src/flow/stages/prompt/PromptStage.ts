@@ -9,7 +9,7 @@ import "@goauthentik/elements/forms/FormElement";
 import { BaseStage } from "@goauthentik/flow/stages/base";
 
 import { msg } from "@lit/localize";
-import { CSSResult, TemplateResult, css, html, nothing } from "lit";
+import { CSSResult, TemplateResult, css, html } from "lit";
 import { customElement } from "lit/decorators.js";
 import { unsafeHTML } from "lit/directives/unsafe-html.js";
 
@@ -81,7 +81,7 @@ ${prompt.initialValue}</textarea
                     name="${prompt.fieldKey}"
                     placeholder="${prompt.placeholder}"
                     class="pf-c-form-control"
-                    readonly
+                    ?readonly=${true}
                     value="${prompt.initialValue}"
                 />`;
             case PromptTypeEnum.TextAreaReadOnly:
@@ -99,7 +99,6 @@ ${prompt.initialValue}</textarea
                     name="${prompt.fieldKey}"
                     placeholder="${prompt.placeholder}"
                     autocomplete="username"
-                    spellcheck="false"
                     class="pf-c-form-control"
                     ?required=${prompt.required}
                     value="${prompt.initialValue}"
@@ -223,20 +222,23 @@ ${prompt.initialValue}</textarea
         }
     }
 
-    renderPromptHelpText(prompt: StagePrompt) {
+    renderPromptHelpText(prompt: StagePrompt): TemplateResult {
         if (prompt.subText === "") {
-            return nothing;
+            return html``;
         }
         return html`<p class="pf-c-form__helper-text">${unsafeHTML(prompt.subText)}</p>`;
     }
 
     shouldRenderInWrapper(prompt: StagePrompt): boolean {
         // Special types that aren't rendered in a wrapper
-        return !(
+        if (
             prompt.type === PromptTypeEnum.Static ||
             prompt.type === PromptTypeEnum.Hidden ||
             prompt.type === PromptTypeEnum.Separator
-        );
+        ) {
+            return false;
+        }
+        return true;
     }
 
     renderField(prompt: StagePrompt): TemplateResult {
@@ -254,7 +256,7 @@ ${prompt.initialValue}</textarea
                 <label class="pf-c-check__label" for="${prompt.fieldKey}">${prompt.label}</label>
                 ${prompt.required
                     ? html`<p class="pf-c-form__helper-text">${msg("Required.")}</p>`
-                    : nothing}
+                    : html``}
                 <p class="pf-c-form__helper-text">${unsafeHTML(prompt.subText)}</p>
             </div>`;
         }
@@ -281,7 +283,8 @@ ${prompt.initialValue}</textarea
 
     render(): TemplateResult {
         if (!this.challenge) {
-            return html`<ak-empty-state loading> </ak-empty-state>`;
+            return html`<ak-empty-state ?loading="${true}" header=${msg("Loading")}>
+            </ak-empty-state>`;
         }
         return html`<header class="pf-c-login__main-header">
                 <h1 class="pf-c-title pf-m-3xl">${this.challenge.flowInfo?.title}</h1>
@@ -296,17 +299,16 @@ ${prompt.initialValue}</textarea
                     ${this.challenge.fields.map((prompt) => {
                         return this.renderField(prompt);
                     })}
-                    ${this.renderNonFieldErrors()} ${this.renderContinue()}
+                    ${"non_field_errors" in (this.challenge?.responseErrors || {})
+                        ? this.renderNonFieldErrors(
+                              this.challenge?.responseErrors?.non_field_errors || [],
+                          )
+                        : html``}
+                    ${this.renderContinue()}
                 </form>
             </div>
             <footer class="pf-c-login__main-footer">
                 <ul class="pf-c-login__main-footer-links"></ul>
             </footer>`;
-    }
-}
-
-declare global {
-    interface HTMLElementTagNameMap {
-        "ak-stage-prompt": PromptStage;
     }
 }

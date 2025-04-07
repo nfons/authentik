@@ -3,6 +3,8 @@
 from json import loads
 from time import sleep
 
+from docker import DockerClient, from_env
+from docker.models.containers import Container
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support import expected_conditions as ec
 
@@ -19,13 +21,7 @@ from authentik.providers.oauth2.constants import (
     SCOPE_OPENID_EMAIL,
     SCOPE_OPENID_PROFILE,
 )
-from authentik.providers.oauth2.models import (
-    ClientTypes,
-    OAuth2Provider,
-    RedirectURI,
-    RedirectURIMatchingMode,
-    ScopeMapping,
-)
+from authentik.providers.oauth2.models import ClientTypes, OAuth2Provider, ScopeMapping
 from tests.e2e.utils import SeleniumTestCase, retry
 
 
@@ -38,11 +34,13 @@ class TestProviderOAuth2OIDC(SeleniumTestCase):
         self.application_slug = generate_id()
         super().setUp()
 
-    def setup_client(self):
+    def setup_client(self) -> Container:
         """Setup client oidc-test-client container which we test OIDC against"""
         sleep(1)
-        self.run_container(
+        client: DockerClient = from_env()
+        container = client.containers.run(
             image="ghcr.io/beryju/oidc-test-client:2.1",
+            detach=True,
             ports={
                 "9009": "9009",
             },
@@ -52,6 +50,8 @@ class TestProviderOAuth2OIDC(SeleniumTestCase):
                 "OIDC_PROVIDER": f"{self.live_server_url}/application/o/{self.application_slug}/",
             },
         )
+        self.wait_for_container(container)
+        return container
 
     @retry()
     @apply_blueprint(
@@ -73,7 +73,7 @@ class TestProviderOAuth2OIDC(SeleniumTestCase):
             client_id=self.client_id,
             client_secret=self.client_secret,
             signing_key=create_test_cert(),
-            redirect_uris=[RedirectURI(RedirectURIMatchingMode.STRICT, "http://localhost:9009/")],
+            redirect_uris="http://localhost:9009/",
             authorization_flow=authorization_flow,
         )
         provider.property_mappings.set(
@@ -91,7 +91,7 @@ class TestProviderOAuth2OIDC(SeleniumTestCase):
             slug=self.application_slug,
             provider=provider,
         )
-        self.setup_client()
+        self.container = self.setup_client()
 
         self.driver.get("http://localhost:9009")
         sleep(2)
@@ -122,9 +122,7 @@ class TestProviderOAuth2OIDC(SeleniumTestCase):
             client_id=self.client_id,
             client_secret=self.client_secret,
             signing_key=create_test_cert(),
-            redirect_uris=[
-                RedirectURI(RedirectURIMatchingMode.STRICT, "http://localhost:9009/auth/callback")
-            ],
+            redirect_uris="http://localhost:9009/auth/callback",
             authorization_flow=authorization_flow,
         )
         provider.property_mappings.set(
@@ -142,7 +140,7 @@ class TestProviderOAuth2OIDC(SeleniumTestCase):
             slug=self.application_slug,
             provider=provider,
         )
-        self.setup_client()
+        self.container = self.setup_client()
 
         self.driver.get("http://localhost:9009")
         self.login()
@@ -165,7 +163,6 @@ class TestProviderOAuth2OIDC(SeleniumTestCase):
         body = loads(self.driver.find_element(By.CSS_SELECTOR, "pre").text)
 
         self.assertEqual(body["IDTokenClaims"]["nickname"], self.user.username)
-        self.assertEqual(body["IDTokenClaims"]["amr"], ["pwd"])
         self.assertEqual(body["UserInfo"]["nickname"], self.user.username)
 
         self.assertEqual(body["IDTokenClaims"]["name"], self.user.name)
@@ -196,9 +193,7 @@ class TestProviderOAuth2OIDC(SeleniumTestCase):
             client_id=self.client_id,
             client_secret=self.client_secret,
             signing_key=create_test_cert(),
-            redirect_uris=[
-                RedirectURI(RedirectURIMatchingMode.STRICT, "http://localhost:9009/auth/callback")
-            ],
+            redirect_uris="http://localhost:9009/auth/callback",
         )
         provider.property_mappings.set(
             ScopeMapping.objects.filter(
@@ -215,7 +210,7 @@ class TestProviderOAuth2OIDC(SeleniumTestCase):
             slug=self.application_slug,
             provider=provider,
         )
-        self.setup_client()
+        self.container = self.setup_client()
 
         self.driver.get("http://localhost:9009")
         self.login()
@@ -269,9 +264,7 @@ class TestProviderOAuth2OIDC(SeleniumTestCase):
             client_id=self.client_id,
             client_secret=self.client_secret,
             signing_key=create_test_cert(),
-            redirect_uris=[
-                RedirectURI(RedirectURIMatchingMode.STRICT, "http://localhost:9009/auth/callback")
-            ],
+            redirect_uris="http://localhost:9009/auth/callback",
         )
         provider.property_mappings.set(
             ScopeMapping.objects.filter(
@@ -294,7 +287,7 @@ class TestProviderOAuth2OIDC(SeleniumTestCase):
         )
         PolicyBinding.objects.create(target=app, policy=negative_policy, order=0)
 
-        self.setup_client()
+        self.container = self.setup_client()
         self.driver.get("http://localhost:9009")
         self.login()
         self.wait.until(ec.presence_of_element_located((By.CSS_SELECTOR, "header > h1")))

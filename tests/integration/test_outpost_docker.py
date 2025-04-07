@@ -6,6 +6,8 @@ from tempfile import mkdtemp
 import pytest
 import yaml
 from channels.testing import ChannelsLiveServerTestCase
+from docker import DockerClient, from_env
+from docker.models.containers import Container
 from docker.types.healthcheck import Healthcheck
 
 from authentik.core.tests.utils import create_test_flow
@@ -25,11 +27,11 @@ from tests.e2e.utils import DockerTestCase, get_docker_tag
 class OutpostDockerTests(DockerTestCase, ChannelsLiveServerTestCase):
     """Test Docker Controllers"""
 
-    def setUp(self):
-        super().setUp()
-        self.ssl_folder = mkdtemp()
-        self.run_container(
+    def _start_container(self, ssl_folder: str) -> Container:
+        client: DockerClient = from_env()
+        container = client.containers.run(
             image="library/docker:dind",
+            detach=True,
             network_mode="host",
             privileged=True,
             healthcheck=Healthcheck(
@@ -39,13 +41,20 @@ class OutpostDockerTests(DockerTestCase, ChannelsLiveServerTestCase):
             ),
             environment={"DOCKER_TLS_CERTDIR": "/ssl"},
             volumes={
-                f"{self.ssl_folder}/": {
+                f"{ssl_folder}/": {
                     "bind": "/ssl",
                 }
             },
         )
+        self.wait_for_container(container)
+        return container
+
+    def setUp(self):
+        super().setUp()
+        self.ssl_folder = mkdtemp()
+        self.container = self._start_container(self.ssl_folder)
         # Ensure that local connection have been created
-        outpost_connection_discovery()
+        outpost_connection_discovery()  # pylint: disable=no-value-for-parameter
         self.provider: ProxyProvider = ProxyProvider.objects.create(
             name="test",
             internal_host="http://localhost",
@@ -82,6 +91,7 @@ class OutpostDockerTests(DockerTestCase, ChannelsLiveServerTestCase):
 
     def tearDown(self) -> None:
         super().tearDown()
+        self.container.kill()
         try:
             rmtree(self.ssl_folder)
         except PermissionError:

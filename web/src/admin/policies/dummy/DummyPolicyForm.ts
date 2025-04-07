@@ -117,9 +117,3 @@ export class DummyPolicyForm extends BasePolicyForm<DummyPolicy> {
             </ak-form-group>`;
     }
 }
-
-declare global {
-    interface HTMLElementTagNameMap {
-        "ak-policy-dummy-form": DummyPolicyForm;
-    }
-}

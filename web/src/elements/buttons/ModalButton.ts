@@ -1,11 +1,6 @@
-import { PFSize } from "@goauthentik/common/enums.js";
 import { AKElement } from "@goauthentik/elements/Base";
-import {
-    ModalHideEvent,
-    ModalShowEvent,
-} from "@goauthentik/elements/controllers/ModalOrchestrationController.js";
+import { PFSize } from "@goauthentik/elements/Spinner";
 
-import { msg } from "@lit/localize";
 import { CSSResult, TemplateResult, css, html, nothing } from "lit";
 import { customElement, property } from "lit/decorators.js";
 
@@ -66,16 +61,26 @@ export class ModalButton extends AKElement {
                 .locked {
                     overflow-y: hidden !important;
                 }
-                .pf-c-modal-box.pf-m-xl {
-                    --pf-c-modal-box--Width: calc(1.5 * var(--pf-c-modal-box--m-lg--lg--MaxWidth));
-                }
             `,
         ];
     }
 
-    closeModal() {
-        this.resetForms();
-        this.open = false;
+    firstUpdated(): void {
+        if (this.handlerBound) return;
+        window.addEventListener("keyup", this.keyUpHandler);
+        this.handlerBound = true;
+    }
+
+    keyUpHandler = (e: KeyboardEvent): void => {
+        if (e.code === "Escape") {
+            this.resetForms();
+            this.open = false;
+        }
+    };
+
+    disconnectedCallback(): void {
+        super.disconnectedCallback();
+        window.removeEventListener("keyup", this.keyUpHandler);
     }
 
     resetForms(): void {
@@ -88,7 +93,6 @@ export class ModalButton extends AKElement {
 
     onClick(): void {
         this.open = true;
-        this.dispatchEvent(new ModalShowEvent(this));
         this.querySelectorAll("*").forEach((child) => {
             if ("requestUpdate" in child) {
                 (child as AKElement).requestUpdate();
@@ -115,11 +119,12 @@ export class ModalButton extends AKElement {
                 >
                     <button
                         @click=${() => {
-                            this.dispatchEvent(new ModalHideEvent(this));
+                            this.resetForms();
+                            this.open = false;
                         }}
                         class="pf-c-button pf-m-plain"
                         type="button"
-                        aria-label=${msg("Close dialog")}
+                        aria-label="Close dialog"
                     >
                         <i class="fas fa-times" aria-hidden="true"></i>
                     </button>
@@ -132,11 +137,5 @@ export class ModalButton extends AKElement {
     render(): TemplateResult {
         return html` <slot name="trigger" @click=${() => this.onClick()}></slot>
             ${this.open ? this.renderModal() : nothing}`;
-    }
-}
-
-declare global {
-    interface HTMLElementTagNameMap {
-        "ak-modal-button": ModalButton;
     }
 }

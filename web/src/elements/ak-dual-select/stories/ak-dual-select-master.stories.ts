@@ -154,9 +154,3 @@ type Story = StoryObj;
 export const Default: Story = {
     render: () => container(html` <ak-sb-fruity .options=${goodForYou}></ak-sb-fruity>`),
 };
-
-declare global {
-    interface HTMLElementTagNameMap {
-        "ak-sb-fruity": AkSbFruity;
-    }
-}

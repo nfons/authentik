@@ -39,9 +39,3 @@ export class FormWizardPage extends WizardPage {
             });
     };
 }
-
-declare global {
-    interface HTMLElementTagNameMap {
-        "ak-wizard-page-form": FormWizardPage;
-    }
-}

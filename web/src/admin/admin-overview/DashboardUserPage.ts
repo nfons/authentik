@@ -84,9 +84,3 @@ export class DashboardUserPage extends AKElement {
             </section> `;
     }
 }
-
-declare global {
-    interface HTMLElementTagNameMap {
-        "ak-admin-dashboard-users": DashboardUserPage;
-    }
-}

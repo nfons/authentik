@@ -42,11 +42,12 @@ export function transformCredentialCreateOptions(
     user.id = u8arr(b64enc(u8arr(stringId)));
     const challenge = u8arr(credentialCreateOptions.challenge.toString());
 
-    return {
-        ...credentialCreateOptions,
+    const transformedCredentialCreateOptions = Object.assign({}, credentialCreateOptions, {
         challenge,
         user,
-    };
+    });
+
+    return transformedCredentialCreateOptions;
 }
 
 export interface Assertion {
@@ -97,11 +98,12 @@ export function transformCredentialRequestOptions(
         },
     );
 
-    return {
-        ...credentialRequestOptions,
+    const transformedCredentialRequestOptions = Object.assign({}, credentialRequestOptions, {
         challenge,
         allowCredentials,
-    };
+    });
+
+    return transformedCredentialRequestOptions;
 }
 
 export interface AuthAssertion {

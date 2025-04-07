@@ -1,11 +1,11 @@
 """authentik core celery"""
 
 import os
-from collections.abc import Callable
 from contextvars import ContextVar
 from logging.config import dictConfig
 from pathlib import Path
 from tempfile import gettempdir
+from typing import Callable
 
 from celery import bootsteps
 from celery.apps.worker import Worker
@@ -18,7 +18,6 @@ from celery.signals import (
     task_prerun,
     worker_ready,
 )
-from celery.worker.control import inspect_command
 from django.conf import settings
 from django.db import ProgrammingError
 from django_tenants.utils import get_public_schema_name
@@ -26,7 +25,6 @@ from structlog.contextvars import STRUCTLOG_KEY_PREFIX
 from structlog.stdlib import get_logger
 from tenant_schemas_celery.app import CeleryApp as TenantAwareCeleryApp
 
-from authentik import get_full_version
 from authentik.lib.sentry import before_send
 from authentik.lib.utils.errors import exception_to_string
 
@@ -65,7 +63,7 @@ def task_prerun_hook(task_id: str, task, *args, **kwargs):
 
 
 @task_postrun.connect
-def task_postrun_hook(task_id: str, task, *args, retval=None, state=None, **kwargs):
+def task_postrun_hook(task_id, task, *args, retval=None, state=None, **kwargs):
     """Log task_id on worker"""
     CTX_TASK_ID.set(...)
     LOGGER.info(
@@ -75,25 +73,19 @@ def task_postrun_hook(task_id: str, task, *args, retval=None, state=None, **kwar
 
 @task_failure.connect
 @task_internal_error.connect
-def task_error_hook(task_id: str, exception: Exception, traceback, *args, **kwargs):
+def task_error_hook(task_id, exception: Exception, traceback, *args, **kwargs):
     """Create system event for failed task"""
     from authentik.events.models import Event, EventAction
 
-    LOGGER.warning("Task failure", task_id=task_id.replace("-", ""), exc=exception)
+    LOGGER.warning("Task failure", exc=exception)
     CTX_TASK_ID.set(...)
     if before_send({}, {"exc_info": (None, exception, None)}) is not None:
-        Event.new(
-            EventAction.SYSTEM_EXCEPTION, message=exception_to_string(exception), task_id=task_id
-        ).save()
+        Event.new(EventAction.SYSTEM_EXCEPTION, message=exception_to_string(exception)).save()
 
 
 def _get_startup_tasks_default_tenant() -> list[Callable]:
     """Get all tasks to be run on startup for the default tenant"""
-    from authentik.outposts.tasks import outpost_connection_discovery
-
-    return [
-        outpost_connection_discovery,
-    ]
+    return []
 
 
 def _get_startup_tasks_all_tenants() -> list[Callable]:
@@ -159,12 +151,6 @@ class LivenessProbe(bootsteps.StartStopStep):
     def update_heartbeat_file(self, worker: Worker):
         """Touch heartbeat file"""
         HEARTBEAT_FILE.touch()
-
-
-@inspect_command(default_timeout=0.2)
-def ping(state, **kwargs):
-    """Ping worker(s)."""
-    return {"ok": "pong", "version": get_full_version()}
 
 
 CELERY_APP.config_from_object(settings.CELERY)

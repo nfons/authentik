@@ -60,9 +60,3 @@ export class TopApplicationsTable extends AKElement {
         </table>`;
     }
 }
-
-declare global {
-    interface HTMLElementTagNameMap {
-        "ak-top-applications-table": TopApplicationsTable;
-    }
-}

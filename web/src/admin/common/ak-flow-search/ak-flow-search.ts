@@ -13,10 +13,4 @@ import FlowSearch from "./FlowSearch";
 @customElement("ak-flow-search")
 export class AkFlowSearch<T extends Flow> extends FlowSearch<T> {}
 
-declare global {
-    interface HTMLElementTagNameMap {
-        "ak-flow-search": AkFlowSearch<Flow>;
-    }
-}
-
 export default AkFlowSearch;

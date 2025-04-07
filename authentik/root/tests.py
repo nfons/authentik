@@ -1,25 +1,14 @@
 """root tests"""
 
-from pathlib import Path
-from secrets import token_urlsafe
-from tempfile import gettempdir
+from base64 import b64encode
 
+from django.conf import settings
 from django.test import TestCase
 from django.urls import reverse
 
 
 class TestRoot(TestCase):
     """Test root application"""
-
-    def setUp(self):
-        _tmp = Path(gettempdir())
-        self.token = token_urlsafe(32)
-        with open(_tmp / "authentik-core-metrics.key", "w") as _f:
-            _f.write(self.token)
-
-    def tearDown(self):
-        _tmp = Path(gettempdir())
-        (_tmp / "authentik-core-metrics.key").unlink()
 
     def test_monitoring_error(self):
         """Test monitoring without any credentials"""
@@ -28,14 +17,15 @@ class TestRoot(TestCase):
 
     def test_monitoring_ok(self):
         """Test monitoring with credentials"""
-        auth_headers = {"HTTP_AUTHORIZATION": f"Bearer {self.token}"}
+        creds = "Basic " + b64encode(f"monitor:{settings.SECRET_KEY}".encode()).decode("utf-8")
+        auth_headers = {"HTTP_AUTHORIZATION": creds}
         response = self.client.get(reverse("metrics"), **auth_headers)
         self.assertEqual(response.status_code, 200)
 
     def test_monitoring_live(self):
         """Test LiveView"""
-        self.assertEqual(self.client.get(reverse("health-live")).status_code, 200)
+        self.assertEqual(self.client.get(reverse("health-live")).status_code, 204)
 
     def test_monitoring_ready(self):
         """Test ReadyView"""
-        self.assertEqual(self.client.get(reverse("health-ready")).status_code, 200)
+        self.assertEqual(self.client.get(reverse("health-ready")).status_code, 204)

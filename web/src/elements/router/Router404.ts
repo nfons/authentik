@@ -32,9 +32,3 @@ export class Router404 extends AKElement {
         </div>`;
     }
 }
-
-declare global {
-    interface HTMLElementTagNameMap {
-        "ak-router-404": Router404;
-    }
-}

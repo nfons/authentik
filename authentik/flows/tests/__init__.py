@@ -1,32 +1,36 @@
 """Test helpers"""
 
 from json import loads
-from typing import Any
+from typing import Any, Optional
 
 from django.http.response import HttpResponse
 from django.urls.base import reverse
 from rest_framework.test import APITestCase
 
 from authentik.core.models import User
+from authentik.flows.challenge import ChallengeTypes
 from authentik.flows.models import Flow
 
 
 class FlowTestCase(APITestCase):
     """Helpers for testing flows and stages."""
 
+    # pylint: disable=invalid-name
     def assertStageResponse(
         self,
         response: HttpResponse,
-        flow: Flow | None = None,
-        user: User | None = None,
+        flow: Optional[Flow] = None,
+        user: Optional[User] = None,
         **kwargs,
     ) -> dict[str, Any]:
         """Assert various attributes of a stage response"""
         self.assertEqual(response.status_code, 200)
         raw_response = loads(response.content.decode())
         self.assertIsNotNone(raw_response["component"])
+        self.assertIsNotNone(raw_response["type"])
         if flow:
             self.assertIn("flow_info", raw_response)
+            self.assertEqual(raw_response["flow_info"]["background"], flow.background_url)
             self.assertEqual(
                 raw_response["flow_info"]["cancel_url"], reverse("authentik_flows:cancel")
             )
@@ -41,6 +45,9 @@ class FlowTestCase(APITestCase):
             self.assertEqual(raw_response[key], expected)
         return raw_response
 
+    # pylint: disable=invalid-name
     def assertStageRedirects(self, response: HttpResponse, to: str) -> dict[str, Any]:
         """Wrapper around assertStageResponse that checks for a redirect"""
-        return self.assertStageResponse(response, component="xak-flow-redirect", to=to)
+        return self.assertStageResponse(
+            response, component="xak-flow-redirect", to=to, type=ChallengeTypes.REDIRECT.value
+        )

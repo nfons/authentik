@@ -1,17 +1,14 @@
 """common RBAC serializers"""
 
+from typing import Optional
+
 from django.apps import apps
 from django_filters.filters import UUIDFilter
 from django_filters.filterset import FilterSet
 from guardian.models import GroupObjectPermission
 from guardian.shortcuts import get_objects_for_group
 from rest_framework.fields import SerializerMethodField
-from rest_framework.mixins import (
-    DestroyModelMixin,
-    ListModelMixin,
-    RetrieveModelMixin,
-    UpdateModelMixin,
-)
+from rest_framework.mixins import ListModelMixin
 from rest_framework.viewsets import GenericViewSet
 
 from authentik.api.pagination import SmallerPagination
@@ -42,7 +39,7 @@ class ExtraRoleObjectPermissionSerializer(RoleObjectPermissionSerializer):
         except LookupError:
             return f"{instance.content_type.app_label}.{instance.content_type.model}"
 
-    def get_object_description(self, instance: GroupObjectPermission) -> str | None:
+    def get_object_description(self, instance: GroupObjectPermission) -> Optional[str]:
         """Get model description from attached model. This operation takes at least
         one additional query, and the description is only shown if the user/role has the
         view_ permission on the object"""
@@ -53,7 +50,7 @@ class ExtraRoleObjectPermissionSerializer(RoleObjectPermissionSerializer):
         except LookupError:
             return None
         objects = get_objects_for_group(instance.group, f"{app_label}.view_{model}", model_class)
-        obj = objects.filter(pk=instance.object_pk).first()
+        obj = objects.first()
         if not obj:
             return None
         return str(obj)
@@ -69,12 +66,10 @@ class ExtraRoleObjectPermissionSerializer(RoleObjectPermissionSerializer):
 class RolePermissionFilter(FilterSet):
     """Role permission filter"""
 
-    uuid = UUIDFilter("group__role__uuid")
+    uuid = UUIDFilter("group__role__uuid", required=True)
 
 
-class RolePermissionViewSet(
-    ListModelMixin, UpdateModelMixin, RetrieveModelMixin, DestroyModelMixin, GenericViewSet
-):
+class RolePermissionViewSet(ListModelMixin, GenericViewSet):
     """Get a role's assigned object permissions"""
 
     serializer_class = ExtraRoleObjectPermissionSerializer

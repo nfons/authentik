@@ -28,9 +28,3 @@ export class AkWizardTitle extends AKElement {
 }
 
 export default AkWizardTitle;
-
-declare global {
-    interface HTMLElementTagNameMap {
-        "ak-wizard-title": AkWizardTitle;
-    }
-}

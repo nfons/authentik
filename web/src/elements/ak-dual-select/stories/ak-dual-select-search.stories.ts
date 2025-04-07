@@ -42,14 +42,16 @@ const container = (testItem: TemplateResult) =>
 const displayMessage = (result: any) => {
     const doc = new DOMParser().parseFromString(`<p><i>Content</i>: ${result}</p>`, "text/xml");
     const target = document.querySelector("#action-button-message-pad");
+    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
     target!.replaceChildren(doc.firstChild!);
 };
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const displayMessage2 = (result: any) => {
-    console.debug("Huh.");
+    console.log("Huh.");
     const doc = new DOMParser().parseFromString(`<p><i>Behavior</i>: ${result}</p>`, "text/xml");
     const target = document.querySelector("#action-button-message-pad-2");
+    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
     target!.replaceChildren(doc.firstChild!);
 };
 

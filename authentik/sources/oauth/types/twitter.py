@@ -1,6 +1,6 @@
 """Twitter OAuth Views"""
 
-from typing import Any
+from typing import Any, Optional
 
 from authentik.lib.generators import generate_id
 from authentik.sources.oauth.clients.oauth2 import (
@@ -20,7 +20,7 @@ class TwitterClient(UserprofileHeaderAuthClient):
     # is set via query parameter, so we reuse the azure client
     # see https://github.com/goauthentik/authentik/issues/1910
 
-    def get_access_token(self, **request_kwargs) -> dict[str, Any] | None:
+    def get_access_token(self, **request_kwargs) -> Optional[dict[str, Any]]:
         return super().get_access_token(
             auth=(
                 self.source.consumer_key,
@@ -49,6 +49,17 @@ class TwitterOAuthCallback(OAuthCallback):
     def get_user_id(self, info: dict[str, str]) -> str:
         return info.get("data", {}).get("id", "")
 
+    def get_user_enroll_context(
+        self,
+        info: dict[str, Any],
+    ) -> dict[str, Any]:
+        data = info.get("data", {})
+        return {
+            "username": data.get("username"),
+            "email": None,
+            "name": data.get("name"),
+        }
+
 
 @registry.register()
 class TwitterType(SourceType):
@@ -62,11 +73,3 @@ class TwitterType(SourceType):
     authorization_url = "https://twitter.com/i/oauth2/authorize"
     access_token_url = "https://api.twitter.com/2/oauth2/token"  # nosec
     profile_url = "https://api.twitter.com/2/users/me"
-
-    def get_base_user_properties(self, info: dict[str, Any], **kwargs) -> dict[str, Any]:
-        data = info.get("data", {})
-        return {
-            "username": data.get("username"),
-            "email": None,
-            "name": data.get("name"),
-        }

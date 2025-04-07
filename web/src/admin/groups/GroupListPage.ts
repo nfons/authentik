@@ -1,5 +1,6 @@
 import "@goauthentik/admin/groups/GroupForm";
 import { DEFAULT_CONFIG } from "@goauthentik/common/api/config";
+import { uiConfig } from "@goauthentik/common/ui/config";
 import "@goauthentik/components/ak-status-label";
 import "@goauthentik/elements/buttons/SpinnerButton";
 import "@goauthentik/elements/forms/DeleteBulkForm";
@@ -35,10 +36,12 @@ export class GroupListPage extends TablePage<Group> {
     @property()
     order = "name";
 
-    async apiEndpoint(): Promise<PaginatedResponse<Group>> {
+    async apiEndpoint(page: number): Promise<PaginatedResponse<Group>> {
         return new CoreApi(DEFAULT_CONFIG).coreGroupsList({
-            ...(await this.defaultEndpointConfig()),
-            includeUsers: false,
+            ordering: this.order,
+            page: page,
+            pageSize: (await uiConfig()).pagination.perPage,
+            search: this.search || "",
         });
     }
 
@@ -79,7 +82,7 @@ export class GroupListPage extends TablePage<Group> {
             html`<a href="#/identity/groups/${item.pk}">${item.name}</a>`,
             html`${item.parentName || msg("-")}`,
             html`${Array.from(item.users || []).length}`,
-            html`<ak-status-label type="info" ?good=${item.isSuperuser}></ak-status-label>`,
+            html`<ak-label type="info" ?good=${item.isSuperuser}></ak-label>`,
             html`<ak-forms-modal>
                 <span slot="submit"> ${msg("Update")} </span>
                 <span slot="header"> ${msg("Update Group")} </span>
@@ -102,11 +105,5 @@ export class GroupListPage extends TablePage<Group> {
                 <button slot="trigger" class="pf-c-button pf-m-primary">${msg("Create")}</button>
             </ak-forms-modal>
         `;
-    }
-}
-
-declare global {
-    interface HTMLElementTagNameMap {
-        "ak-group-list": GroupListPage;
     }
 }

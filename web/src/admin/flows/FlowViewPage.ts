@@ -1,9 +1,9 @@
 import "@goauthentik/admin/flows/BoundStagesList";
 import "@goauthentik/admin/flows/FlowDiagram";
 import "@goauthentik/admin/flows/FlowForm";
-import { DesignationToLabel } from "@goauthentik/admin/flows/utils";
 import "@goauthentik/admin/policies/BoundPoliciesList";
-import "@goauthentik/admin/rbac/ObjectPermissionsPage";
+import { DesignationToLabel } from "@goauthentik/app/admin/flows/utils";
+import "@goauthentik/app/elements/rbac/ObjectPermissionsPage";
 import { AndNext, DEFAULT_CONFIG } from "@goauthentik/common/api/config";
 import "@goauthentik/components/events/ObjectChangelog";
 import { AKElement } from "@goauthentik/elements/Base";
@@ -12,8 +12,8 @@ import "@goauthentik/elements/Tabs";
 import "@goauthentik/elements/buttons/SpinnerButton";
 
 import { msg } from "@lit/localize";
-import { CSSResult, PropertyValues, TemplateResult, css, html } from "lit";
-import { customElement, property, state } from "lit/decorators.js";
+import { CSSResult, TemplateResult, css, html } from "lit";
+import { customElement, property } from "lit/decorators.js";
 
 import PFButton from "@patternfly/patternfly/components/Button/button.css";
 import PFCard from "@patternfly/patternfly/components/Card/card.css";
@@ -32,10 +32,18 @@ import {
 
 @customElement("ak-flow-view")
 export class FlowViewPage extends AKElement {
-    @property({ type: String })
-    flowSlug?: string;
+    @property()
+    set flowSlug(value: string) {
+        new FlowsApi(DEFAULT_CONFIG)
+            .flowsInstancesRetrieve({
+                slug: value,
+            })
+            .then((flow) => {
+                this.flow = flow;
+            });
+    }
 
-    @state()
+    @property({ attribute: false })
     flow!: Flow;
 
     static get styles(): CSSResult[] {
@@ -47,18 +55,6 @@ export class FlowViewPage extends AKElement {
                 height: 100%;
             }
         `);
-    }
-
-    fetchFlow(slug: string) {
-        new FlowsApi(DEFAULT_CONFIG).flowsInstancesRetrieve({ slug }).then((flow) => {
-            this.flow = flow;
-        });
-    }
-
-    willUpdate(changedProperties: PropertyValues<this>) {
-        if (changedProperties.has("flowSlug") && this.flowSlug) {
-            this.fetchFlow(this.flowSlug);
-        }
     }
 
     render(): TemplateResult {
@@ -191,7 +187,7 @@ export class FlowViewPage extends AKElement {
                                                                 const finalURL = `${
                                                                     link.link
                                                                 }?${encodeURI(
-                                                                    `inspector=open&next=/#${window.location.hash}`,
+                                                                    `inspector&next=/#${window.location.hash}`,
                                                                 )}`;
                                                                 window.open(finalURL, "_blank");
                                                             })
@@ -280,15 +276,9 @@ export class FlowViewPage extends AKElement {
                 <ak-rbac-object-permission-page
                     slot="page-permissions"
                     data-tab-title="${msg("Permissions")}"
-                    model=${RbacPermissionsAssignedByUsersListModelEnum.AuthentikFlowsFlow}
+                    model=${RbacPermissionsAssignedByUsersListModelEnum.FlowsFlow}
                     objectPk=${this.flow.pk}
                 ></ak-rbac-object-permission-page>
             </ak-tabs>`;
-    }
-}
-
-declare global {
-    interface HTMLElementTagNameMap {
-        "ak-flow-view": FlowViewPage;
     }
 }

@@ -8,6 +8,7 @@ from authentik.events.models import Event, EventAction
 from authentik.flows.challenge import (
     Challenge,
     ChallengeResponse,
+    ChallengeTypes,
     WithUserInfoChallenge,
 )
 from authentik.flows.stage import ChallengeStageView
@@ -60,6 +61,7 @@ class AuthenticatorDuoStageView(ChallengeStageView):
         enroll = self.request.session[SESSION_KEY_DUO_ENROLL]
         return AuthenticatorDuoChallenge(
             data={
+                "type": ChallengeTypes.NATIVE.value,
                 "activation_barcode": enroll["activation_barcode"],
                 "activation_code": enroll["activation_code"],
                 "stage_uuid": str(stage.stage_uuid),

@@ -49,9 +49,3 @@ export class Chip extends AKElement {
         </li>`;
     }
 }
-
-declare global {
-    interface HTMLElementTagNameMap {
-        "ak-chip": Chip;
-    }
-}

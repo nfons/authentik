@@ -5,13 +5,12 @@ from functools import lru_cache
 from pathlib import Path
 
 from django.core.mail import EmailMultiAlternatives
-from django.core.mail.message import sanitize_address
 from django.template.exceptions import TemplateDoesNotExist
 from django.template.loader import render_to_string
 from django.utils import translation
 
 
-@lru_cache
+@lru_cache()
 def logo_data() -> MIMEImage:
     """Get logo as MIME Image for emails"""
     path = Path("web/icons/icon_left_brand.png")
@@ -32,14 +31,10 @@ class TemplateEmailMessage(EmailMultiAlternatives):
         sanitized_to = []
         # Ensure that all recipients are valid
         for recipient_name, recipient_email in to:
-            # Remove any newline characters from name and email before sanitizing
-            clean_name = (
-                recipient_name.replace("\n", " ").replace("\r", " ") if recipient_name else ""
-            )
-            clean_email = (
-                recipient_email.replace("\n", "").replace("\r", "") if recipient_email else ""
-            )
-            sanitized_to.append(sanitize_address((clean_name, clean_email), "utf-8"))
+            if recipient_name == recipient_email:
+                sanitized_to.append(recipient_email)
+            else:
+                sanitized_to.append(f"{recipient_name} <{recipient_email}>")
         super().__init__(to=sanitized_to, **kwargs)
         if not template_name:
             return

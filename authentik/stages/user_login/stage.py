@@ -9,8 +9,7 @@ from django.utils.translation import gettext as _
 from rest_framework.fields import BooleanField, CharField
 
 from authentik.core.models import AuthenticatedSession, User
-from authentik.events.middleware import audit_ignore
-from authentik.flows.challenge import ChallengeResponse, WithUserInfoChallenge
+from authentik.flows.challenge import ChallengeResponse, ChallengeTypes, WithUserInfoChallenge
 from authentik.flows.planner import PLAN_CONTEXT_PENDING_USER, PLAN_CONTEXT_SOURCE
 from authentik.flows.stage import ChallengeStageView
 from authentik.lib.utils.time import timedelta_from_string
@@ -45,7 +44,11 @@ class UserLoginStageView(ChallengeStageView):
     response_class = UserLoginChallengeResponse
 
     def get_challenge(self, *args, **kwargs) -> UserLoginChallenge:
-        return UserLoginChallenge(data={})
+        return UserLoginChallenge(
+            data={
+                "type": ChallengeTypes.NATIVE.value,
+            }
+        )
 
     def dispatch(self, request: HttpRequest) -> HttpResponse:
         """Check for remember_me, and do login"""
@@ -92,14 +95,11 @@ class UserLoginStageView(ChallengeStageView):
             self.logger.warning("User is not active, login will not work.")
         delta = self.set_session_duration(remember)
         self.set_session_ip()
-        # the `user_logged_in` signal will update the user to write the `last_login` field
-        # which we don't want to log as we already have a dedicated login event
-        with audit_ignore():
-            login(
-                self.request,
-                user,
-                backend=backend,
-            )
+        login(
+            self.request,
+            user,
+            backend=backend,
+        )
         self.logger.debug(
             "Logged in",
             backend=backend,

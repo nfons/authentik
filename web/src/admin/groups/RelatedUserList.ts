@@ -1,13 +1,12 @@
 import "@goauthentik/admin/users/ServiceAccountForm";
 import "@goauthentik/admin/users/UserActiveForm";
 import "@goauthentik/admin/users/UserForm";
-import "@goauthentik/admin/users/UserImpersonateForm";
 import "@goauthentik/admin/users/UserPasswordForm";
 import "@goauthentik/admin/users/UserResetEmailForm";
+import { me } from "@goauthentik/app/common/users";
 import { DEFAULT_CONFIG } from "@goauthentik/common/api/config";
-import { PFSize } from "@goauthentik/common/enums.js";
 import { MessageLevel } from "@goauthentik/common/messages";
-import { me } from "@goauthentik/common/users";
+import { uiConfig } from "@goauthentik/common/ui/config";
 import { getRelativeTime } from "@goauthentik/common/utils";
 import "@goauthentik/components/ak-status-label";
 import { WithBrandConfig } from "@goauthentik/elements/Interface/brandProvider";
@@ -136,14 +135,16 @@ export class RelatedUserList extends WithBrandConfig(WithCapabilitiesConfig(Tabl
         return super.styles.concat(PFDescriptionList, PFAlert, PFBanner);
     }
 
-    async apiEndpoint(): Promise<PaginatedResponse<User>> {
+    async apiEndpoint(page: number): Promise<PaginatedResponse<User>> {
         const users = await new CoreApi(DEFAULT_CONFIG).coreUsersList({
-            ...(await this.defaultEndpointConfig()),
+            ordering: this.order,
+            page: page,
+            pageSize: (await uiConfig()).pagination.perPage,
+            search: this.search || "",
             groupsByPk: this.targetGroup ? [this.targetGroup.pk] : [],
             type: this.hideServiceAccounts
                 ? [CoreUsersListTypeEnum.External, CoreUsersListTypeEnum.Internal]
                 : undefined,
-            includeGroups: false,
         });
         this.me = await me();
         return users;
@@ -163,7 +164,6 @@ export class RelatedUserList extends WithBrandConfig(WithCapabilitiesConfig(Tabl
         return html`<ak-forms-delete-bulk
             objectLabel=${msg("User(s)")}
             actionLabel=${msg("Remove Users(s)")}
-            action=${msg("removed")}
             actionSubtext=${msg(
                 str`Are you sure you want to remove the selected users from the group ${this.targetGroup?.name}?`,
             )}
@@ -215,22 +215,20 @@ export class RelatedUserList extends WithBrandConfig(WithCapabilitiesConfig(Tabl
                 </ak-forms-modal>
                 ${canImpersonate
                     ? html`
-                          <ak-forms-modal size=${PFSize.Medium} id="impersonate-request">
-                              <span slot="submit">${msg("Impersonate")}</span>
-                              <span slot="header">${msg("Impersonate")} ${item.username}</span>
-                              <ak-user-impersonate-form
-                                  slot="form"
-                                  .instancePk=${item.pk}
-                              ></ak-user-impersonate-form>
-                              <button slot="trigger" class="pf-c-button pf-m-tertiary">
-                                  <pf-tooltip
-                                      position="top"
-                                      content=${msg("Temporarily assume the identity of this user")}
-                                  >
-                                      <span>${msg("Impersonate")}</span>
-                                  </pf-tooltip>
-                              </button>
-                          </ak-forms-modal>
+                          <ak-action-button
+                              class="pf-m-tertiary"
+                              .apiRequest=${() => {
+                                  return new CoreApi(DEFAULT_CONFIG)
+                                      .coreUsersImpersonateCreate({
+                                          id: item.pk,
+                                      })
+                                      .then(() => {
+                                          window.location.href = "/";
+                                      });
+                              }}
+                          >
+                              ${msg("Impersonate")}
+                          </ak-action-button>
                       `
                     : html``}`,
         ];
@@ -307,7 +305,7 @@ export class RelatedUserList extends WithBrandConfig(WithCapabilitiesConfig(Tabl
                                                   class="pf-m-secondary"
                                                   .apiRequest=${() => {
                                                       return new CoreApi(DEFAULT_CONFIG)
-                                                          .coreUsersRecoveryCreate({
+                                                          .coreUsersRecoveryRetrieve({
                                                               id: item.pk,
                                                           })
                                                           .then((rec) => {
@@ -481,12 +479,5 @@ export class RelatedUserList extends WithBrandConfig(WithCapabilitiesConfig(Tabl
                     </div>
                 </div>
             </div>`;
-    }
-}
-
-declare global {
-    interface HTMLElementTagNameMap {
-        "ak-user-related-list": RelatedUserList;
-        "ak-user-related-add": RelatedUserAdd;
     }
 }

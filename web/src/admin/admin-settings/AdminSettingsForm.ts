@@ -1,9 +1,9 @@
+import { first } from "@goauthentik/app/common/utils";
 import { DEFAULT_CONFIG } from "@goauthentik/common/api/config";
-import { first } from "@goauthentik/common/utils";
-import "@goauthentik/components/ak-number-input";
 import "@goauthentik/components/ak-switch-input";
 import "@goauthentik/components/ak-text-input";
-import "@goauthentik/elements/ak-array-input.js";
+import "@goauthentik/elements/CodeMirror";
+import { CodeMirrorMode } from "@goauthentik/elements/CodeMirror";
 import { Form } from "@goauthentik/elements/forms/Form";
 import "@goauthentik/elements/forms/FormGroup";
 import "@goauthentik/elements/forms/HorizontalFormElement";
@@ -12,16 +12,13 @@ import "@goauthentik/elements/forms/SearchSelect";
 import "@goauthentik/elements/utils/TimeDeltaHelp";
 
 import { msg } from "@lit/localize";
-import { CSSResult, TemplateResult, css, html } from "lit";
+import { CSSResult, TemplateResult, html } from "lit";
 import { customElement, property } from "lit/decorators.js";
 import { ifDefined } from "lit/directives/if-defined.js";
 
 import PFList from "@patternfly/patternfly/components/List/list.css";
 
-import { AdminApi, FooterLink, Settings, SettingsRequest } from "@goauthentik/api";
-
-import "./AdminSettingsFooterLinks.js";
-import { IFooterLinkInput, akFooterLinkInput } from "./AdminSettingsFooterLinks.js";
+import { AdminApi, Settings, SettingsRequest } from "@goauthentik/api";
 
 @customElement("ak-admin-settings-form")
 export class AdminSettingsForm extends Form<SettingsRequest> {
@@ -42,14 +39,7 @@ export class AdminSettingsForm extends Form<SettingsRequest> {
     private _settings?: Settings;
 
     static get styles(): CSSResult[] {
-        return super.styles.concat(
-            PFList,
-            css`
-                ak-array-input {
-                    width: 100%;
-                }
-            `,
-        );
+        return super.styles.concat(PFList);
     }
 
     getSuccessMessage(): string {
@@ -70,7 +60,6 @@ export class AdminSettingsForm extends Form<SettingsRequest> {
                 name="avatars"
                 label=${msg("Avatars")}
                 value="${ifDefined(this._settings?.avatars)}"
-                inputHint="code"
                 .bighelp=${html`
                     <p class="pf-c-form__helper-text">
                         ${msg(
@@ -157,7 +146,6 @@ export class AdminSettingsForm extends Form<SettingsRequest> {
             <ak-text-input
                 name="eventRetention"
                 label=${msg("Event retention")}
-                inputHint="code"
                 required
                 value="${ifDefined(this._settings?.eventRetention)}"
                 .bighelp=${html`<p class="pf-c-form__helper-text">
@@ -165,8 +153,7 @@ export class AdminSettingsForm extends Form<SettingsRequest> {
                     </p>
                     <p class="pf-c-form__helper-text">
                         ${msg(
-                            html`When using an external logging solution for archiving, this can be
-                                set to <code>minutes=5</code>.`,
+                            'When using an external logging solution for archiving, this can be set to "minutes=5".',
                         )}
                     </p>
                     <p class="pf-c-form__helper-text">
@@ -178,21 +165,15 @@ export class AdminSettingsForm extends Form<SettingsRequest> {
             >
             </ak-text-input>
             <ak-form-element-horizontal label=${msg("Footer links")} name="footerLinks">
-                <ak-array-input
-                    .items=${this._settings?.footerLinks ?? []}
-                    .newItem=${() => ({ name: "", href: "" })}
-                    .row=${(f?: FooterLink) =>
-                        akFooterLinkInput({
-                            ".footerLink": f,
-                            "style": "width: 100%",
-                            "name": "footer-link",
-                        } as unknown as IFooterLinkInput)}
-                >
-                </ak-array-input>
+                <ak-codemirror
+                    mode=${CodeMirrorMode.YAML}
+                    .value="${first(this._settings?.footerLinks, [])}"
+                ></ak-codemirror>
                 <p class="pf-c-form__helper-text">
                     ${msg(
-                        "This option configures the footer links on the flow executor pages. The URL is limited to web and mail addresses. If the name is left blank, the URL will be shown.",
+                        "This option configures the footer links on the flow executor pages. It must be a valid YAML or JSON list and can be used as follows:",
                     )}
+                    <code>[{"name": "Link Name","href":"https://goauthentik.io"}]</code>
                 </p>
             </ak-form-element-horizontal>
             <ak-switch-input
@@ -211,38 +192,6 @@ export class AdminSettingsForm extends Form<SettingsRequest> {
                 help=${msg("Globally enable/disable impersonation.")}
             >
             </ak-switch-input>
-            <ak-switch-input
-                name="impersonationRequireReason"
-                label=${msg("Require reason for impersonation")}
-                ?checked="${this._settings?.impersonationRequireReason}"
-                help=${msg("Require administrators to provide a reason for impersonating a user.")}
-            >
-            </ak-switch-input>
-            <ak-text-input
-                name="defaultTokenDuration"
-                label=${msg("Default token duration")}
-                inputHint="code"
-                required
-                value="${ifDefined(this._settings?.defaultTokenDuration)}"
-                .bighelp=${html`<p class="pf-c-form__helper-text">
-                        ${msg("Default duration for generated tokens")}
-                    </p>
-                    <ak-utils-time-delta-help></ak-utils-time-delta-help>`}
-            >
-            </ak-text-input>
-            <ak-number-input
-                label=${msg("Default token length")}
-                required
-                name="defaultTokenLength"
-                value="${first(this._settings?.defaultTokenLength, 60)}"
-                help=${msg("Default length of generated tokens")}
-            ></ak-number-input>
         `;
-    }
-}
-
-declare global {
-    interface HTMLElementTagNameMap {
-        "ak-admin-settings-form": AdminSettingsForm;
     }
 }

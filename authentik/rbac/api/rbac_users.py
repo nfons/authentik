@@ -1,17 +1,14 @@
 """common RBAC serializers"""
 
+from typing import Optional
+
 from django.apps import apps
 from django_filters.filters import NumberFilter
 from django_filters.filterset import FilterSet
 from guardian.models import UserObjectPermission
 from guardian.shortcuts import get_objects_for_user
 from rest_framework.fields import SerializerMethodField
-from rest_framework.mixins import (
-    DestroyModelMixin,
-    ListModelMixin,
-    RetrieveModelMixin,
-    UpdateModelMixin,
-)
+from rest_framework.mixins import ListModelMixin
 from rest_framework.viewsets import GenericViewSet
 
 from authentik.api.pagination import SmallerPagination
@@ -42,7 +39,7 @@ class ExtraUserObjectPermissionSerializer(UserObjectPermissionSerializer):
         except LookupError:
             return f"{instance.content_type.app_label}.{instance.content_type.model}"
 
-    def get_object_description(self, instance: UserObjectPermission) -> str | None:
+    def get_object_description(self, instance: UserObjectPermission) -> Optional[str]:
         """Get model description from attached model. This operation takes at least
         one additional query, and the description is only shown if the user/role has the
         view_ permission on the object"""
@@ -53,7 +50,7 @@ class ExtraUserObjectPermissionSerializer(UserObjectPermissionSerializer):
         except LookupError:
             return None
         objects = get_objects_for_user(instance.user, f"{app_label}.view_{model}", model_class)
-        obj = objects.filter(pk=instance.object_pk).first()
+        obj = objects.first()
         if not obj:
             return None
         return str(obj)
@@ -69,12 +66,10 @@ class ExtraUserObjectPermissionSerializer(UserObjectPermissionSerializer):
 class UserPermissionFilter(FilterSet):
     """User-assigned permission filter"""
 
-    user_id = NumberFilter("user__id")
+    user_id = NumberFilter("user__id", required=True)
 
 
-class UserPermissionViewSet(
-    ListModelMixin, UpdateModelMixin, RetrieveModelMixin, DestroyModelMixin, GenericViewSet
-):
+class UserPermissionViewSet(ListModelMixin, GenericViewSet):
     """Get a users's assigned object permissions"""
 
     serializer_class = ExtraUserObjectPermissionSerializer

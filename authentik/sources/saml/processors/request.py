@@ -76,7 +76,7 @@ class RequestProcessor:
                 auth_n_request,
                 xmlsec.constants.TransformExclC14N,
                 sign_algorithm_transform,
-                ns=xmlsec.constants.DSigNs,
+                ns="ds",  # type: ignore
             )
             auth_n_request.append(signature)
 

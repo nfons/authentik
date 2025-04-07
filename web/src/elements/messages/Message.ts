@@ -79,9 +79,3 @@ export class Message extends AKElement {
         </li>`;
     }
 }
-
-declare global {
-    interface HTMLElementTagNameMap {
-        "ak-message": Message;
-    }
-}

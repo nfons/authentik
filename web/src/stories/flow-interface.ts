@@ -1,4 +1,4 @@
-import { FlowExecutor } from "@goauthentik/flow/FlowExecutor";
+import { FlowExecutor } from "@goauthentik/app/flow/FlowExecutor";
 
 import { customElement, property } from "lit/decorators.js";
 
@@ -11,11 +11,5 @@ export class StoryFlowInterface extends FlowExecutor {
 
     async getTheme(): Promise<UiThemeEnum> {
         return this.storyTheme;
-    }
-}
-
-declare global {
-    interface HTMLElementTagNameMap {
-        "ak-storybook-interface-flow": StoryFlowInterface;
     }
 }

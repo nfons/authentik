@@ -21,9 +21,7 @@ updates:
     labels:
       - dependencies
   - package-ecosystem: npm
-    directories:
-      - "/web"
-      - "/web/sfe"
+    directory: "/web"
     schedule:
       interval: daily
       time: "04:00"
@@ -32,6 +30,7 @@ updates:
     open-pull-requests-limit: 10
     commit-message:
       prefix: "web:"
+    # TODO: deduplicate these groups
     groups:
       sentry:
         patterns:
@@ -43,11 +42,9 @@ updates:
           - "babel-*"
       eslint:
         patterns:
-          - "@eslint/*"
           - "@typescript-eslint/*"
-          - "eslint-*"
           - "eslint"
-          - "typescript-eslint"
+          - "eslint-*"
       storybook:
         patterns:
           - "@storybook/*"
@@ -55,16 +52,38 @@ updates:
       esbuild:
         patterns:
           - "@esbuild/*"
-          - "esbuild*"
-      rollup:
+  - package-ecosystem: npm
+    directory: "/tests/wdio"
+    schedule:
+      interval: daily
+      time: "04:00"
+    labels:
+      - dependencies
+    open-pull-requests-limit: 10
+    commit-message:
+      prefix: "web:"
+    # TODO: deduplicate these groups
+    groups:
+      sentry:
         patterns:
-          - "@rollup/*"
-          - "rollup-*"
-          - "rollup*"
-      swc:
+          - "@sentry/*"
+          - "@spotlightjs/*"
+      babel:
         patterns:
-          - "@swc/*"
-          - "swc-*"
+          - "@babel/*"
+          - "babel-*"
+      eslint:
+        patterns:
+          - "@typescript-eslint/*"
+          - "eslint"
+          - "eslint-*"
+      storybook:
+        patterns:
+          - "@storybook/*"
+          - "*storybook*"
+      esbuild:
+        patterns:
+          - "@esbuild/*"
       wdio:
         patterns:
           - "@wdio/*"
@@ -82,23 +101,7 @@ updates:
       docusaurus:
         patterns:
           - "@docusaurus/*"
-      build:
-        patterns:
-          - "@swc/*"
-          - "swc-*"
-          - "lightningcss*"
-          - "@rspack/binding*"
-  - package-ecosystem: npm
-    directory: "/lifecycle/aws"
-    schedule:
-      interval: daily
-      time: "04:00"
-    open-pull-requests-limit: 10
-    commit-message:
-      prefix: "lifecycle/aws:"
-    labels:
-      - dependencies
-  - package-ecosystem: uv
+  - package-ecosystem: pip
     directory: "/"
     schedule:
       interval: daily

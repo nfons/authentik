@@ -58,9 +58,3 @@ export class UserActiveForm extends DeleteForm {
             </footer>`;
     }
 }
-
-declare global {
-    interface HTMLElementTagNameMap {
-        "ak-user-active-form": UserActiveForm;
-    }
-}

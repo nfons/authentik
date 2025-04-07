@@ -31,10 +31,4 @@ export class AkBrandedFlowSearch<T extends Flow> extends FlowSearch<T> {
     }
 }
 
-declare global {
-    interface HTMLElementTagNameMap {
-        "ak-branded-flow-search": AkBrandedFlowSearch<Flow>;
-    }
-}
-
 export default AkBrandedFlowSearch;

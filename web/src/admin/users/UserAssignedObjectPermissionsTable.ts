@@ -1,7 +1,7 @@
-import { DEFAULT_CONFIG } from "@goauthentik/common/api/config";
-import { groupBy } from "@goauthentik/common/utils";
+import { DEFAULT_CONFIG } from "@goauthentik/app/common/api/config";
+import { groupBy } from "@goauthentik/app/common/utils";
+import { PaginatedResponse, Table, TableColumn } from "@goauthentik/app/elements/table/Table";
 import "@goauthentik/elements/forms/DeleteBulkForm";
-import { PaginatedResponse, Table, TableColumn } from "@goauthentik/elements/table/Table";
 import "@patternfly/elements/pf-tooltip/pf-tooltip.js";
 
 import { msg } from "@lit/localize";
@@ -18,10 +18,12 @@ export class UserAssignedObjectPermissionsTable extends Table<ExtraUserObjectPer
     checkbox = true;
     clearOnRefresh = true;
 
-    async apiEndpoint(): Promise<PaginatedResponse<ExtraUserObjectPermission>> {
+    apiEndpoint(page: number): Promise<PaginatedResponse<ExtraUserObjectPermission>> {
         return new RbacApi(DEFAULT_CONFIG).rbacPermissionsUsersList({
-            ...(await this.defaultEndpointConfig()),
             userId: this.userId || 0,
+            page: page,
+            ordering: this.order,
+            search: this.search,
         });
     }
 
@@ -33,9 +35,9 @@ export class UserAssignedObjectPermissionsTable extends Table<ExtraUserObjectPer
 
     columns(): TableColumn[] {
         return [
-            new TableColumn(msg("Model"), "model"),
-            new TableColumn(msg("Permission"), ""),
-            new TableColumn(msg("Object"), ""),
+            new TableColumn("Model", "model"),
+            new TableColumn("Permission", ""),
+            new TableColumn("Object", ""),
             new TableColumn(""),
         ];
     }
@@ -84,13 +86,7 @@ export class UserAssignedObjectPermissionsTable extends Table<ExtraUserObjectPer
                   >
                       <pre>${item.objectPk}</pre>
                   </pf-tooltip>`}`,
-            html`<i class="fas fa-check pf-m-success"></i>`,
+            html`✓`,
         ];
-    }
-}
-
-declare global {
-    interface HTMLElementTagNameMap {
-        "ak-user-assigned-object-permissions-table": UserAssignedObjectPermissionsTable;
     }
 }

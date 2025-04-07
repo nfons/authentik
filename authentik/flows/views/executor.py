@@ -1,6 +1,7 @@
 """authentik multi-stage authentication engine"""
 
 from copy import deepcopy
+from typing import Optional
 
 from django.conf import settings
 from django.contrib.auth.mixins import LoginRequiredMixin
@@ -18,8 +19,9 @@ from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, PolymorphicProxySerializer, extend_schema
 from rest_framework.permissions import AllowAny
 from rest_framework.views import APIView
-from sentry_sdk import capture_exception, start_span
+from sentry_sdk import capture_exception
 from sentry_sdk.api import set_tag
+from sentry_sdk.hub import Hub
 from structlog.stdlib import BoundLogger, get_logger
 
 from authentik.brands.models import Brand
@@ -29,6 +31,7 @@ from authentik.flows.apps import HIST_FLOW_EXECUTION_STAGE_TIME
 from authentik.flows.challenge import (
     Challenge,
     ChallengeResponse,
+    ChallengeTypes,
     FlowErrorChallenge,
     HttpChallengeResponse,
     RedirectChallenge,
@@ -54,7 +57,7 @@ from authentik.flows.planner import (
     FlowPlan,
     FlowPlanner,
 )
-from authentik.flows.stage import AccessDeniedStage, StageView
+from authentik.flows.stage import AccessDeniedChallengeView, StageView
 from authentik.lib.sentry import SentryIgnoredException
 from authentik.lib.utils.errors import exception_to_string
 from authentik.lib.utils.reflection import all_subclasses, class_to_path
@@ -69,7 +72,6 @@ SESSION_KEY_APPLICATION_PRE = "authentik/flows/application_pre"
 SESSION_KEY_GET = "authentik/flows/get"
 SESSION_KEY_POST = "authentik/flows/post"
 SESSION_KEY_HISTORY = "authentik/flows/history"
-SESSION_KEY_AUTH_STARTED = "authentik/flows/auth_started"
 QS_KEY_TOKEN = "flow_token"  # nosec
 QS_QUERY = "query"
 
@@ -104,10 +106,10 @@ class FlowExecutorView(APIView):
 
     permission_classes = [AllowAny]
 
-    flow: Flow = None
+    flow: Flow
 
-    plan: FlowPlan | None = None
-    current_binding: FlowStageBinding | None = None
+    plan: Optional[FlowPlan] = None
+    current_binding: Optional[FlowStageBinding] = None
     current_stage: Stage
     current_stage_view: View
 
@@ -115,8 +117,7 @@ class FlowExecutorView(APIView):
 
     def setup(self, request: HttpRequest, flow_slug: str):
         super().setup(request, flow_slug=flow_slug)
-        if not self.flow:
-            self.flow = get_object_or_404(Flow.objects.select_related(), slug=flow_slug)
+        self.flow = get_object_or_404(Flow.objects.select_related(), slug=flow_slug)
         self._logger = get_logger().bind(flow_slug=flow_slug)
         set_tag("authentik.flow", self.flow.slug)
 
@@ -136,9 +137,9 @@ class FlowExecutorView(APIView):
             )
         return to_stage_response(self.request, self.stage_invalid(error_message=exc.messages))
 
-    def _check_flow_token(self, key: str) -> FlowPlan | None:
+    def _check_flow_token(self, key: str) -> Optional[FlowPlan]:
         """Check if the user is using a flow token to restore a plan"""
-        token: FlowToken | None = FlowToken.filter_not_expired(key=key).first()
+        token: Optional[FlowToken] = FlowToken.filter_not_expired(key=key).first()
         if not token:
             return None
         plan = None
@@ -154,8 +155,11 @@ class FlowExecutorView(APIView):
         self._logger.debug("f(exec): restored flow plan from token", plan=plan)
         return plan
 
+    # pylint: disable=too-many-return-statements
     def dispatch(self, request: HttpRequest, flow_slug: str) -> HttpResponse:
-        with start_span(op="authentik.flow.executor.dispatch", name=self.flow.slug) as span:
+        with Hub.current.start_span(
+            op="authentik.flow.executor.dispatch", description=self.flow.slug
+        ) as span:
             span.set_data("authentik Flow", self.flow.slug)
             get_params = QueryDict(request.GET.get(QS_QUERY, ""))
             if QS_KEY_TOKEN in get_params:
@@ -173,8 +177,7 @@ class FlowExecutorView(APIView):
                     # Existing plan is deleted from session and instance
                     self.plan = None
                     self.cancel()
-                else:
-                    self._logger.debug("f(exec): Continuing existing plan")
+                self._logger.debug("f(exec): Continuing existing plan")
 
             # Initial flow request, check if we have an upstream query string passed in
             request.session[SESSION_KEY_GET] = get_params
@@ -199,7 +202,7 @@ class FlowExecutorView(APIView):
                 # if the cached plan is from an older version, it might have different attributes
                 # in which case we just delete the plan and invalidate everything
                 next_binding = self.plan.next(self.request)
-            except Exception as exc:
+            except Exception as exc:  # pylint: disable=broad-except
                 self._logger.warning(
                     "f(exec): found incompatible flow plan, invalidating run", exc=exc
                 )
@@ -217,7 +220,7 @@ class FlowExecutorView(APIView):
                 flow_slug=self.flow.slug,
             )
             try:
-                stage_cls = self.current_stage.view
+                stage_cls = self.current_stage.type
             except NotImplementedError as exc:
                 self._logger.debug("Error getting stage type", exc=exc)
                 return self.stage_invalid()
@@ -274,9 +277,9 @@ class FlowExecutorView(APIView):
         )
         try:
             with (
-                start_span(
+                Hub.current.start_span(
                     op="authentik.flow.executor.stage",
-                    name=class_path,
+                    description=class_path,
                 ) as span,
                 HIST_FLOW_EXECUTION_STAGE_TIME.labels(
                     method=request.method.upper(),
@@ -288,7 +291,7 @@ class FlowExecutorView(APIView):
                 span.set_data("authentik Flow", self.flow.slug)
                 stage_response = self.current_stage_view.dispatch(request)
                 return to_stage_response(request, stage_response)
-        except Exception as exc:
+        except Exception as exc:  # pylint: disable=broad-except
             return self.handle_exception(exc)
 
     @extend_schema(
@@ -325,9 +328,9 @@ class FlowExecutorView(APIView):
         )
         try:
             with (
-                start_span(
+                Hub.current.start_span(
                     op="authentik.flow.executor.stage",
-                    name=class_path,
+                    description=class_path,
                 ) as span,
                 HIST_FLOW_EXECUTION_STAGE_TIME.labels(
                     method=request.method.upper(),
@@ -339,7 +342,7 @@ class FlowExecutorView(APIView):
                 span.set_data("authentik Flow", self.flow.slug)
                 stage_response = self.current_stage_view.dispatch(request)
                 return to_stage_response(request, stage_response)
-        except Exception as exc:
+        except Exception as exc:  # pylint: disable=broad-except
             return self.handle_exception(exc)
 
     def _initiate_plan(self) -> FlowPlan:
@@ -351,7 +354,7 @@ class FlowExecutorView(APIView):
             # there are no issues with the class we might've gotten
             # from the cache. If there are errors, just delete all cached flows
             _ = plan.has_stages
-        except Exception:
+        except Exception:  # pylint: disable=broad-except
             keys = cache.keys(f"{CACHE_PREFIX}*")
             cache.delete_many(keys)
             return self._initiate_plan()
@@ -423,7 +426,7 @@ class FlowExecutorView(APIView):
         )
         return self._flow_done()
 
-    def stage_invalid(self, error_message: str | None = None) -> HttpResponse:
+    def stage_invalid(self, error_message: Optional[str] = None) -> HttpResponse:
         """Callback used stage when data is correct but a policy denies access
         or the user account is disabled.
 
@@ -444,17 +447,16 @@ class FlowExecutorView(APIView):
             )
             return self.restart_flow(keep_context)
         self.cancel()
-        challenge_view = AccessDeniedStage(self, error_message)
+        challenge_view = AccessDeniedChallengeView(self, error_message)
         challenge_view.request = self.request
         return to_stage_response(self.request, challenge_view.get(self.request))
 
     def cancel(self):
-        """Cancel current flow execution"""
+        """Cancel current execution and return a redirect"""
         keys_to_delete = [
             SESSION_KEY_APPLICATION_PRE,
             SESSION_KEY_PLAN,
             SESSION_KEY_GET,
-            SESSION_KEY_AUTH_STARTED,
             # We might need the initial POST payloads for later requests
             # SESSION_KEY_POST,
             # We don't delete the history on purpose, as a user might
@@ -469,7 +471,7 @@ class FlowExecutorView(APIView):
 
 
 class CancelView(View):
-    """View which cancels the currently active plan"""
+    """View which canels the currently active plan"""
 
     def get(self, request: HttpRequest) -> HttpResponse:
         """View which canels the currently active plan"""
@@ -482,9 +484,9 @@ class CancelView(View):
 class ToDefaultFlow(View):
     """Redirect to default flow matching by designation"""
 
-    designation: FlowDesignation | None = None
+    designation: Optional[FlowDesignation] = None
 
-    def flow_by_policy(self, request: HttpRequest, **flow_filter) -> Flow | None:
+    def flow_by_policy(self, request: HttpRequest, **flow_filter) -> Optional[Flow]:
         """Get a Flow by `**flow_filter` and check if the request from `request` can access it."""
         flows = Flow.objects.filter(**flow_filter).order_by("slug")
         for flow in flows:
@@ -506,7 +508,9 @@ class ToDefaultFlow(View):
         if self.designation == FlowDesignation.AUTHENTICATION:
             flow = brand.flow_authentication
             # Check if we have a default flow from application
-            application: Application | None = self.request.session.get(SESSION_KEY_APPLICATION_PRE)
+            application: Optional[Application] = self.request.session.get(
+                SESSION_KEY_APPLICATION_PRE
+            )
             if application and application.provider and application.provider.authentication_flow:
                 flow = application.provider.authentication_flow
         elif self.designation == FlowDesignation.INVALIDATION:
@@ -536,10 +540,7 @@ class ToDefaultFlow(View):
 
 def to_stage_response(request: HttpRequest, source: HttpResponse) -> HttpResponse:
     """Convert normal HttpResponse into JSON Response"""
-    if (
-        isinstance(source, HttpResponseRedirect)
-        or source.status_code == HttpResponseRedirect.status_code
-    ):
+    if isinstance(source, HttpResponseRedirect) or source.status_code == 302:
         redirect_url = source["Location"]
         # Redirects to the same URL usually indicate an Error within a form
         if request.get_full_path() == redirect_url:
@@ -552,6 +553,7 @@ def to_stage_response(request: HttpRequest, source: HttpResponse) -> HttpRespons
         return HttpChallengeResponse(
             RedirectChallenge(
                 {
+                    "type": ChallengeTypes.REDIRECT,
                     "to": str(redirect_url),
                 }
             )
@@ -560,6 +562,7 @@ def to_stage_response(request: HttpRequest, source: HttpResponse) -> HttpRespons
         return HttpChallengeResponse(
             ShellChallenge(
                 {
+                    "type": ChallengeTypes.SHELL,
                     "body": source.render().content.decode("utf-8"),
                 }
             )
@@ -569,6 +572,7 @@ def to_stage_response(request: HttpRequest, source: HttpResponse) -> HttpRespons
         return HttpChallengeResponse(
             ShellChallenge(
                 {
+                    "type": ChallengeTypes.SHELL,
                     "body": source.content.decode("utf-8"),
                 }
             )
@@ -600,5 +604,10 @@ class ConfigureFlowInitView(LoginRequiredMixin, View):
             )
         except FlowNonApplicableException:
             LOGGER.warning("Flow not applicable to user")
-            raise Http404 from None
-        return plan.to_redirect(request, stage.configure_flow)
+            raise Http404
+        request.session[SESSION_KEY_PLAN] = plan
+        return redirect_with_qs(
+            "authentik_core:if-flow",
+            self.request.GET,
+            flow_slug=stage.configure_flow.slug,
+        )

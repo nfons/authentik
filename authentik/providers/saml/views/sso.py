@@ -1,5 +1,7 @@
 """authentik SAML IDP Views"""
 
+from typing import Optional
+
 from django.http import Http404, HttpRequest, HttpResponse
 from django.shortcuts import get_object_or_404
 from django.utils.decorators import method_decorator
@@ -13,11 +15,12 @@ from authentik.events.models import Event, EventAction
 from authentik.flows.exceptions import FlowNonApplicableException
 from authentik.flows.models import in_memory_stage
 from authentik.flows.planner import PLAN_CONTEXT_APPLICATION, PLAN_CONTEXT_SSO, FlowPlanner
-from authentik.flows.views.executor import SESSION_KEY_POST
+from authentik.flows.views.executor import SESSION_KEY_PLAN, SESSION_KEY_POST
+from authentik.lib.utils.urls import redirect_with_qs
 from authentik.lib.views import bad_request_message
-from authentik.policies.views import BufferedPolicyAccessView
+from authentik.policies.views import PolicyAccessView
 from authentik.providers.saml.exceptions import CannotHandleAssertion
-from authentik.providers.saml.models import SAMLBindings, SAMLProvider
+from authentik.providers.saml.models import SAMLProvider
 from authentik.providers.saml.processors.authn_request_parser import AuthNRequestParser
 from authentik.providers.saml.views.flows import (
     REQUEST_KEY_RELAY_STATE,
@@ -35,7 +38,7 @@ from authentik.stages.consent.stage import (
 LOGGER = get_logger()
 
 
-class SAMLSSOView(BufferedPolicyAccessView):
+class SAMLSSOView(PolicyAccessView):
     """SAML SSO Base View, which plans a flow and injects our final stage.
     Calls get/post handler."""
 
@@ -45,7 +48,7 @@ class SAMLSSOView(BufferedPolicyAccessView):
             SAMLProvider, pk=self.application.provider_id
         )
 
-    def check_saml_request(self) -> HttpRequest | None:
+    def check_saml_request(self) -> Optional[HttpRequest]:
         """Handler to verify the SAML Request. Must be implemented by a subclass"""
         raise NotImplementedError
 
@@ -71,26 +74,25 @@ class SAMLSSOView(BufferedPolicyAccessView):
                 },
             )
         except FlowNonApplicableException:
-            raise Http404 from None
+            raise Http404
         plan.append_stage(in_memory_stage(SAMLFlowFinalView))
-        return plan.to_redirect(
-            request,
-            self.provider.authorization_flow,
-            allowed_silent_types=(
-                [SAMLFlowFinalView] if self.provider.sp_binding in [SAMLBindings.REDIRECT] else []
-            ),
+        request.session[SESSION_KEY_PLAN] = plan
+        return redirect_with_qs(
+            "authentik_core:if-flow",
+            request.GET,
+            flow_slug=self.provider.authorization_flow.slug,
         )
 
     def post(self, request: HttpRequest, application_slug: str) -> HttpResponse:
         """GET and POST use the same handler, but we can't
-        override .dispatch easily because BufferedPolicyAccessView's dispatch"""
+        override .dispatch easily because PolicyAccessView's dispatch"""
         return self.get(request, application_slug)
 
 
 class SAMLSSOBindingRedirectView(SAMLSSOView):
     """SAML Handler for SSO/Redirect bindings, which are sent via GET"""
 
-    def check_saml_request(self) -> HttpRequest | None:
+    def check_saml_request(self) -> Optional[HttpRequest]:
         """Handle REDIRECT bindings"""
         if REQUEST_KEY_SAML_REQUEST not in self.request.GET:
             LOGGER.info("SAML payload missing")
@@ -120,7 +122,7 @@ class SAMLSSOBindingRedirectView(SAMLSSOView):
 class SAMLSSOBindingPOSTView(SAMLSSOView):
     """SAML Handler for SSO/POST bindings"""
 
-    def check_saml_request(self) -> HttpRequest | None:
+    def check_saml_request(self) -> Optional[HttpRequest]:
         """Handle POST bindings"""
         payload = self.request.POST
         # Restore the post body from the session
@@ -147,7 +149,7 @@ class SAMLSSOBindingPOSTView(SAMLSSOView):
 class SAMLSSOBindingInitView(SAMLSSOView):
     """SAML Handler for for IdP Initiated login flows"""
 
-    def check_saml_request(self) -> HttpRequest | None:
+    def check_saml_request(self) -> Optional[HttpRequest]:
         """Create SAML Response from scratch"""
         LOGGER.debug("No SAML Request, using IdP-initiated flow.")
         auth_n_request = AuthNRequestParser(self.provider).idp_initiated()

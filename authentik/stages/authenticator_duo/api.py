@@ -1,20 +1,23 @@
 """AuthenticatorDuoStage API Views"""
 
 from django.http import Http404
+from django_filters.rest_framework.backends import DjangoFilterBackend
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiResponse, extend_schema, inline_serializer
 from guardian.shortcuts import get_objects_for_user
 from rest_framework import mixins
 from rest_framework.decorators import action
 from rest_framework.fields import CharField, ChoiceField, IntegerField
+from rest_framework.filters import OrderingFilter, SearchFilter
+from rest_framework.permissions import IsAdminUser
 from rest_framework.request import Request
 from rest_framework.response import Response
+from rest_framework.serializers import ModelSerializer
 from rest_framework.viewsets import GenericViewSet, ModelViewSet
 from structlog.stdlib import get_logger
 
-from authentik.core.api.groups import GroupMemberSerializer
+from authentik.api.authorization import OwnerFilter, OwnerPermissions
 from authentik.core.api.used_by import UsedByMixin
-from authentik.core.api.utils import ModelSerializer
 from authentik.flows.api.stages import StageSerializer
 from authentik.rbac.decorators import permission_required
 from authentik.stages.authenticator_duo.models import AuthenticatorDuoStage, DuoDevice
@@ -166,11 +169,9 @@ class AuthenticatorDuoStageViewSet(UsedByMixin, ModelViewSet):
 class DuoDeviceSerializer(ModelSerializer):
     """Serializer for Duo authenticator devices"""
 
-    user = GroupMemberSerializer(read_only=True)
-
     class Meta:
         model = DuoDevice
-        fields = ["pk", "name", "user"]
+        fields = ["pk", "name"]
         depth = 2
 
 
@@ -189,12 +190,14 @@ class DuoDeviceViewSet(
     search_fields = ["name"]
     filterset_fields = ["name"]
     ordering = ["name"]
-    owner_field = "user"
+    permission_classes = [OwnerPermissions]
+    filter_backends = [OwnerFilter, DjangoFilterBackend, OrderingFilter, SearchFilter]
 
 
 class DuoAdminDeviceViewSet(ModelViewSet):
     """Viewset for Duo authenticator devices (for admins)"""
 
+    permission_classes = [IsAdminUser]
     queryset = DuoDevice.objects.all()
     serializer_class = DuoDeviceSerializer
     search_fields = ["name"]

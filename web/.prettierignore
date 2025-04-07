@@ -12,5 +12,3 @@ storybook-static/
 # Prettier breaks the tsconfig file
 tsconfig.json
 .storybook/css-import-maps*
-package.json
-packages/**/package.json

@@ -2,6 +2,7 @@ import "@goauthentik/admin/flows/FlowForm";
 import "@goauthentik/admin/flows/FlowImportForm";
 import { DesignationToLabel } from "@goauthentik/admin/flows/utils";
 import { AndNext, DEFAULT_CONFIG } from "@goauthentik/common/api/config";
+import { uiConfig } from "@goauthentik/common/ui/config";
 import { groupBy } from "@goauthentik/common/utils";
 import "@goauthentik/elements/buttons/SpinnerButton";
 import "@goauthentik/elements/forms/ConfirmationForm";
@@ -41,8 +42,13 @@ export class FlowListPage extends TablePage<Flow> {
     @property()
     order = "slug";
 
-    async apiEndpoint(): Promise<PaginatedResponse<Flow>> {
-        return new FlowsApi(DEFAULT_CONFIG).flowsInstancesList(await this.defaultEndpointConfig());
+    async apiEndpoint(page: number): Promise<PaginatedResponse<Flow>> {
+        return new FlowsApi(DEFAULT_CONFIG).flowsInstancesList({
+            ordering: this.order,
+            page: page,
+            pageSize: (await uiConfig()).pagination.perPage,
+            search: this.search || "",
+        });
     }
 
     groupBy(items: Flow[]): [string, Flow[]][] {
@@ -166,11 +172,5 @@ export class FlowListPage extends TablePage<Flow> {
                 <div slot="modal"></div>
             </ak-forms-confirm>
         `;
-    }
-}
-
-declare global {
-    interface HTMLElementTagNameMap {
-        "ak-flow-list": FlowListPage;
     }
 }

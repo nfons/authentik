@@ -1,13 +1,14 @@
-import { applicationListStyle } from "@goauthentik/admin/applications/ApplicationListPage";
-import { DEFAULT_CONFIG } from "@goauthentik/common/api/config";
-import "@goauthentik/elements/AppIcon";
-import { PaginatedResponse, Table, TableColumn } from "@goauthentik/elements/table/Table";
+import { applicationListStyle } from "@goauthentik/app/admin/applications/ApplicationListPage";
+import { DEFAULT_CONFIG } from "@goauthentik/app/common/api/config";
+import { uiConfig } from "@goauthentik/app/common/ui/config";
+import { PFSize } from "@goauthentik/app/elements/Spinner";
+import { PaginatedResponse, Table, TableColumn } from "@goauthentik/app/elements/table/Table";
+import "@goauthentik/components/ak-app-icon";
 import "@patternfly/elements/pf-tooltip/pf-tooltip.js";
 
 import { msg } from "@lit/localize";
 import { CSSResult, TemplateResult, html } from "lit";
 import { customElement, property } from "lit/decorators.js";
-import { ifDefined } from "lit/directives/if-defined.js";
 
 import { Application, CoreApi, User } from "@goauthentik/api";
 
@@ -20,10 +21,13 @@ export class UserApplicationTable extends Table<Application> {
         return super.styles.concat(applicationListStyle);
     }
 
-    async apiEndpoint(): Promise<PaginatedResponse<Application>> {
+    async apiEndpoint(page: number): Promise<PaginatedResponse<Application>> {
         return new CoreApi(DEFAULT_CONFIG).coreApplicationsList({
-            ...(await this.defaultEndpointConfig()),
             forUser: this.user?.pk,
+            page: page,
+            pageSize: (await uiConfig()).pagination.perPage,
+            ordering: this.order,
+            search: this.search || "",
         });
     }
 
@@ -40,10 +44,7 @@ export class UserApplicationTable extends Table<Application> {
 
     row(item: Application): TemplateResult[] {
         return [
-            html`<ak-app-icon
-                name=${item.name}
-                icon=${ifDefined(item.metaIcon || undefined)}
-            ></ak-app-icon>`,
+            html`<ak-app-icon size=${PFSize.Medium} .app=${item}></ak-app-icon>`,
             html`<a href="#/core/applications/${item.slug}">
                 <div>${item.name}</div>
                 ${item.metaPublisher ? html`<small>${item.metaPublisher}</small>` : html``}
@@ -74,11 +75,5 @@ export class UserApplicationTable extends Table<Application> {
                       </a>`
                     : html``}`,
         ];
-    }
-}
-
-declare global {
-    interface HTMLElementTagNameMap {
-        "ak-user-application-table": UserApplicationTable;
     }
 }

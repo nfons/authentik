@@ -1,19 +1,17 @@
 """policy binding API Views"""
 
-from collections import OrderedDict
+from typing import OrderedDict
 
 from django.core.exceptions import ObjectDoesNotExist
 from django_filters.filters import BooleanFilter, ModelMultipleChoiceFilter
 from django_filters.filterset import FilterSet
-from rest_framework.exceptions import ValidationError
-from rest_framework.serializers import PrimaryKeyRelatedField
+from rest_framework.serializers import ModelSerializer, PrimaryKeyRelatedField, ValidationError
 from rest_framework.viewsets import ModelViewSet
 from structlog.stdlib import get_logger
 
 from authentik.core.api.groups import GroupSerializer
 from authentik.core.api.used_by import UsedByMixin
 from authentik.core.api.users import UserSerializer
-from authentik.core.api.utils import ModelSerializer
 from authentik.policies.api.policies import PolicySerializer
 from authentik.policies.models import PolicyBinding, PolicyBindingModel
 
@@ -27,6 +25,7 @@ class PolicyBindingModelForeignKey(PrimaryKeyRelatedField):
     def use_pk_only_optimization(self):
         return False
 
+    # pylint: disable=inconsistent-return-statements
     def to_internal_value(self, data):
         if self.pk_field is not None:
             data = self.pk_field.to_internal_value(data)
@@ -84,17 +83,19 @@ class PolicyBindingSerializer(ModelSerializer):
 
     def validate(self, attrs: OrderedDict) -> OrderedDict:
         """Check that either policy, group or user is set."""
-        target: PolicyBindingModel = attrs.get("target")
-        supported = target.supported_policy_binding_targets()
-        supported.sort()
-        count = sum([bool(attrs.get(x, None)) for x in supported])
+        count = sum(
+            [
+                bool(attrs.get("policy", None)),
+                bool(attrs.get("group", None)),
+                bool(attrs.get("user", None)),
+            ]
+        )
         invalid = count > 1
         empty = count < 1
-        warning = ", ".join(f"'{x}'" for x in supported)
         if invalid:
-            raise ValidationError(f"Only one of {warning} can be set.")
+            raise ValidationError("Only one of 'policy', 'group' or 'user' can be set.")
         if empty:
-            raise ValidationError(f"One of {warning} must be set.")
+            raise ValidationError("One of 'policy', 'group' or 'user' must be set.")
         return attrs
 
 

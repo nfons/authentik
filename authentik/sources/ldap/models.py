@@ -5,14 +5,14 @@ from os.path import dirname, exists
 from shutil import rmtree
 from ssl import CERT_REQUIRED
 from tempfile import NamedTemporaryFile, mkdtemp
-from typing import Any
+from typing import Optional
 
-import pglock
+from django.core.cache import cache
 from django.db import connection, models
-from django.templatetags.static import static
 from django.utils.translation import gettext_lazy as _
 from ldap3 import ALL, NONE, RANDOM, Connection, Server, ServerPool, Tls
 from ldap3.core.exceptions import LDAPException, LDAPInsufficientAccessRightsResult, LDAPSchemaError
+from redis.lock import Lock
 from rest_framework.serializers import Serializer
 
 from authentik.core.models import Group, PropertyMapping, Source
@@ -21,19 +21,6 @@ from authentik.lib.config import CONFIG
 from authentik.lib.models import DomainlessURLValidator
 
 LDAP_TIMEOUT = 15
-LDAP_UNIQUENESS = "ldap_uniq"
-LDAP_DISTINGUISHED_NAME = "distinguishedName"
-
-
-def flatten(value: Any) -> Any:
-    """Flatten `value` if its a list, set or tuple"""
-    if isinstance(value, list | set | tuple):
-        if len(value) < 1:
-            return None
-        if isinstance(value, set):
-            return value.pop()
-        return value[0]
-    return value
 
 
 class MultiURLValidator(DomainlessURLValidator):
@@ -105,9 +92,11 @@ class LDAPSource(Source):
         default="objectSid", help_text=_("Field which contains a unique Identifier.")
     )
 
-    password_login_update_internal_password = models.BooleanField(
-        default=False,
-        help_text=_("Update internal authentik password when login succeeds with LDAP"),
+    property_mappings_group = models.ManyToManyField(
+        PropertyMapping,
+        default=None,
+        blank=True,
+        help_text=_("Property mappings used for group creation/updating."),
     )
 
     sync_users = models.BooleanField(default=True)
@@ -132,35 +121,6 @@ class LDAPSource(Source):
         from authentik.sources.ldap.api import LDAPSourceSerializer
 
         return LDAPSourceSerializer
-
-    @property
-    def property_mapping_type(self) -> "type[PropertyMapping]":
-        from authentik.sources.ldap.models import LDAPSourcePropertyMapping
-
-        return LDAPSourcePropertyMapping
-
-    def update_properties_with_uniqueness_field(self, properties, dn, ldap, **kwargs):
-        properties.setdefault("attributes", {})[LDAP_DISTINGUISHED_NAME] = dn
-        if self.object_uniqueness_field in ldap:
-            properties["attributes"][LDAP_UNIQUENESS] = flatten(
-                ldap.get(self.object_uniqueness_field)
-            )
-        return properties
-
-    def get_base_user_properties(self, **kwargs):
-        return self.update_properties_with_uniqueness_field({}, **kwargs)
-
-    def get_base_group_properties(self, **kwargs):
-        return self.update_properties_with_uniqueness_field(
-            {
-                "parent": self.sync_parent_group,
-            },
-            **kwargs,
-        )
-
-    @property
-    def icon_url(self) -> str:
-        return static("authentik/sources/ldap.png")
 
     def server(self, **kwargs) -> ServerPool:
         """Get LDAP Server/ServerPool"""
@@ -200,9 +160,9 @@ class LDAPSource(Source):
 
     def connection(
         self,
-        server: Server | None = None,
-        server_kwargs: dict | None = None,
-        connection_kwargs: dict | None = None,
+        server: Optional[Server] = None,
+        server_kwargs: Optional[dict] = None,
+        connection_kwargs: Optional[dict] = None,
     ) -> Connection:
         """Get a fully connected and bound LDAP Connection"""
         server_kwargs = server_kwargs or {}
@@ -240,16 +200,21 @@ class LDAPSource(Source):
         return RuntimeError("Failed to bind")
 
     @property
-    def sync_lock(self) -> pglock.advisory:
-        """Postgres lock for syncing LDAP to prevent multiple parallel syncs happening"""
-        return pglock.advisory(
-            lock_id=f"goauthentik.io/{connection.schema_name}/sources/ldap/sync/{self.slug}",
-            timeout=0,
-            side_effect=pglock.Return,
+    def sync_lock(self) -> Lock:
+        """Redis lock for syncing LDAP to prevent multiple parallel syncs happening"""
+        return Lock(
+            cache.client.get_client(),
+            name=f"goauthentik.io/sources/ldap/sync/{connection.schema_name}-{self.slug}",
+            # Convert task timeout hours to seconds, and multiply times 3
+            # (see authentik/sources/ldap/tasks.py:54)
+            # multiply by 3 to add even more leeway
+            timeout=(60 * 60 * CONFIG.get_int("ldap.task_timeout_hours")) * 3,
         )
 
     def check_connection(self) -> dict[str, dict[str, str]]:
         """Check LDAP Connection"""
+        from authentik.sources.ldap.sync.base import flatten
+
         servers = self.server()
         server_info = {}
         # Check each individual server
@@ -285,22 +250,24 @@ class LDAPSource(Source):
         verbose_name_plural = _("LDAP Sources")
 
 
-class LDAPSourcePropertyMapping(PropertyMapping):
+class LDAPPropertyMapping(PropertyMapping):
     """Map LDAP Property to User or Group object attribute"""
+
+    object_field = models.TextField()
 
     @property
     def component(self) -> str:
-        return "ak-property-mapping-source-ldap-form"
+        return "ak-property-mapping-ldap-form"
 
     @property
     def serializer(self) -> type[Serializer]:
-        from authentik.sources.ldap.api import LDAPSourcePropertyMappingSerializer
+        from authentik.sources.ldap.api import LDAPPropertyMappingSerializer
 
-        return LDAPSourcePropertyMappingSerializer
+        return LDAPPropertyMappingSerializer
 
     def __str__(self):
         return str(self.name)
 
     class Meta:
-        verbose_name = _("LDAP Source Property Mapping")
-        verbose_name_plural = _("LDAP Source Property Mappings")
+        verbose_name = _("LDAP Property Mapping")
+        verbose_name_plural = _("LDAP Property Mappings")

@@ -53,9 +53,3 @@ export class ChipGroup extends AKElement {
         </div>`;
     }
 }
-
-declare global {
-    interface HTMLElementTagNameMap {
-        "ak-chip-group": ChipGroup;
-    }
-}

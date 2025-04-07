@@ -9,11 +9,6 @@ import "@patternfly/patternfly/patternfly-base.css";
 
 const preview: Preview = {
     parameters: {
-        options: {
-            storySort: {
-                method: "alphabetical",
-            },
-        },
         actions: { argTypesRegex: "^on[A-Z].*" },
         cssUserPrefs: {
             "prefers-color-scheme": "light",

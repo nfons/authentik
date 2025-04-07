@@ -17,11 +17,9 @@ class TestMetadataProcessor(TestCase):
     def setUp(self):
         self.factory = RequestFactory()
         self.source = SAMLSource.objects.create(
-            name=generate_id(),
             slug=generate_id(),
             issuer="authentik",
             signing_kp=create_test_cert(),
-            encryption_kp=create_test_cert(),
             pre_authentication_flow=create_test_flow(),
         )
 
@@ -31,9 +29,7 @@ class TestMetadataProcessor(TestCase):
         xml = MetadataProcessor(self.source, request).build_entity_descriptor()
         metadata = lxml_from_string(xml)
 
-        schema = etree.XMLSchema(
-            etree.parse("schemas/saml-schema-metadata-2.0.xsd", parser=etree.XMLParser())  # nosec
-        )
+        schema = etree.XMLSchema(etree.parse("schemas/saml-schema-metadata-2.0.xsd"))  # nosec
         self.assertTrue(schema.validate(metadata))
 
     def test_metadata_consistent(self):
@@ -50,7 +46,7 @@ class TestMetadataProcessor(TestCase):
         metadata = ElementTree.fromstring(xml)
         self.assertEqual(metadata.attrib["entityID"], "authentik")
 
-    def test_metadata_without_signature(self):
+    def test_metadata_without_signautre(self):
         """Test Metadata generation being valid"""
         self.source.signing_kp = None
         self.source.save()

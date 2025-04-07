@@ -8,7 +8,6 @@ import (
 	"strings"
 
 	log "github.com/sirupsen/logrus"
-	"goauthentik.io/internal/outpost/ak"
 )
 
 func parseCIDRs(raw string) []*net.IPNet {
@@ -31,18 +30,15 @@ func parseCIDRs(raw string) []*net.IPNet {
 }
 
 func (rs *RadiusServer) Refresh() error {
-	apiProviders, err := ak.Paginator(rs.ac.Client.OutpostsApi.OutpostsRadiusList(context.Background()), ak.PaginatorOptions{
-		PageSize: 100,
-		Logger:   rs.log,
-	})
+	outposts, _, err := rs.ac.Client.OutpostsApi.OutpostsRadiusList(context.Background()).Execute()
 	if err != nil {
 		return err
 	}
-	if len(apiProviders) < 1 {
+	if len(outposts.Results) < 1 {
 		return errors.New("no radius provider defined")
 	}
-	providers := make([]*ProviderInstance, len(apiProviders))
-	for idx, provider := range apiProviders {
+	providers := make([]*ProviderInstance, len(outposts.Results))
+	for idx, provider := range outposts.Results {
 		logger := log.WithField("logger", "authentik.outpost.radius").WithField("provider", provider.Name)
 		providers[idx] = &ProviderInstance{
 			SharedSecret:   []byte(provider.GetSharedSecret()),
@@ -50,7 +46,6 @@ func (rs *RadiusServer) Refresh() error {
 			MFASupport:     provider.GetMfaSupport(),
 			appSlug:        provider.ApplicationSlug,
 			flowSlug:       provider.AuthFlowSlug,
-			providerId:     provider.Pk,
 			s:              rs,
 			log:            logger,
 		}

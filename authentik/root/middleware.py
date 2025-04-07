@@ -1,24 +1,21 @@
 """Dynamically set SameSite depending if the upstream connection is TLS or not"""
 
-from collections.abc import Callable
 from hashlib import sha512
-from ipaddress import ip_address
 from time import perf_counter, time
-from typing import Any
+from typing import Any, Callable, Optional
 
-from channels.exceptions import DenyConnection
 from django.conf import settings
 from django.contrib.sessions.backends.base import UpdateError
 from django.contrib.sessions.exceptions import SessionInterrupted
 from django.contrib.sessions.middleware import SessionMiddleware as UpstreamSessionMiddleware
 from django.http.request import HttpRequest
-from django.http.response import HttpResponse, HttpResponseServerError
+from django.http.response import HttpResponse
 from django.middleware.csrf import CSRF_SESSION_KEY
 from django.middleware.csrf import CsrfViewMiddleware as UpstreamCsrfViewMiddleware
 from django.utils.cache import patch_vary_headers
 from django.utils.http import http_date
 from jwt import PyJWTError, decode, encode
-from sentry_sdk import Scope
+from sentry_sdk.hub import Hub
 from structlog.stdlib import get_logger
 
 from authentik.core.models import Token, TokenIntents, User, UserTypes
@@ -41,9 +38,7 @@ class SessionMiddleware(UpstreamSessionMiddleware):
             # Since go does not consider localhost with http a secure origin
             # we can't set the secure flag.
             user_agent = request.META.get("HTTP_USER_AGENT", "")
-            if user_agent.startswith("goauthentik.io/outpost/") or (
-                "safari" in user_agent.lower() and "chrome" not in user_agent.lower()
-            ):
+            if user_agent.startswith("goauthentik.io/outpost/") or "safari" in user_agent.lower():
                 return False
             return True
         return False
@@ -104,7 +99,7 @@ class SessionMiddleware(UpstreamSessionMiddleware):
                     expires = http_date(expires_time)
                 # Save the session data and refresh the client cookie.
                 # Skip session save for 500 responses, refs #3881.
-                if response.status_code != HttpResponseServerError.status_code:
+                if response.status_code != 500:
                     try:
                         request.session.save()
                     except UpdateError:
@@ -112,7 +107,7 @@ class SessionMiddleware(UpstreamSessionMiddleware):
                             "The request's session was deleted before the "
                             "request completed. The user may have logged "
                             "out in a concurrent request, for example."
-                        ) from None
+                        )
                     payload = {
                         "sid": request.session.session_key,
                         "iss": "authentik",
@@ -177,7 +172,6 @@ class ClientIPMiddleware:
 
     def __init__(self, get_response: Callable[[HttpRequest], HttpResponse]):
         self.get_response = get_response
-        self.logger = get_logger().bind()
 
     def _get_client_ip_from_meta(self, meta: dict[str, Any]) -> str:
         """Attempt to get the client's IP by checking common HTTP Headers.
@@ -189,20 +183,15 @@ class ClientIPMiddleware:
             "HTTP_X_FORWARDED_FOR",
             "REMOTE_ADDR",
         )
-        try:
-            for _header in headers:
-                if _header in meta:
-                    ips: list[str] = meta.get(_header).split(",")
-                    # Ensure the IP parses as a valid IP
-                    return str(ip_address(ips[0].strip()))
-            return self.default_ip
-        except ValueError as exc:
-            self.logger.debug("Invalid remote IP", exc=exc)
-            return self.default_ip
+        for _header in headers:
+            if _header in meta:
+                ips: list[str] = meta.get(_header).split(",")
+                return ips[0].strip()
+        return self.default_ip
 
     # FIXME: this should probably not be in `root` but rather in a middleware in `outposts`
     # but for now it's fine
-    def _get_outpost_override_ip(self, request: HttpRequest) -> str | None:
+    def _get_outpost_override_ip(self, request: HttpRequest) -> Optional[str]:
         """Get the actual remote IP when set by an outpost. Only
         allowed when the request is authenticated, by an outpost internal service account"""
         if (
@@ -230,18 +219,16 @@ class ClientIPMiddleware:
             )
             return None
         # Update sentry scope to include correct IP
-        sentry_user = Scope.get_isolation_scope()._user or {}
-        sentry_user["ip_address"] = delegated_ip
-        Scope.get_isolation_scope().set_user(sentry_user)
+        user = Hub.current.scope._user
+        if not user:
+            user = {}
+        user["ip_address"] = delegated_ip
+        Hub.current.scope.set_user(user)
         # Set the outpost service account on the request
         setattr(request, self.request_attr_outpost_user, user)
-        try:
-            return str(ip_address(delegated_ip))
-        except ValueError as exc:
-            self.logger.debug("Invalid remote IP from Outpost", exc=exc)
-            return None
+        return delegated_ip
 
-    def _get_client_ip(self, request: HttpRequest | None) -> str:
+    def _get_client_ip(self, request: Optional[HttpRequest]) -> str:
         """Attempt to get the client's IP by checking common HTTP Headers.
         Returns none if no IP Could be found"""
         if not request:
@@ -252,7 +239,7 @@ class ClientIPMiddleware:
         return self._get_client_ip_from_meta(request.META)
 
     @staticmethod
-    def get_outpost_user(request: HttpRequest) -> User | None:
+    def get_outpost_user(request: HttpRequest) -> Optional[User]:
         """Get outpost user that authenticated this request"""
         return getattr(request, ClientIPMiddleware.request_attr_outpost_user, None)
 
@@ -283,15 +270,7 @@ class ChannelsLoggingMiddleware:
 
     async def __call__(self, scope, receive, send):
         self.log(scope)
-        try:
-            return await self.inner(scope, receive, send)
-        except DenyConnection:
-            return await send({"type": "websocket.close"})
-        except Exception as exc:
-            if settings.DEBUG:
-                raise exc
-            LOGGER.warning("Exception in ASGI application", exc=exc)
-            return await send({"type": "websocket.close"})
+        return await self.inner(scope, receive, send)
 
     def log(self, scope: dict, **kwargs):
         """Log request"""

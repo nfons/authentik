@@ -1,6 +1,6 @@
 """authentik password stage"""
 
-from typing import Any
+from typing import Any, Optional
 
 from django.contrib.auth import _clean_credentials
 from django.contrib.auth.backends import BaseBackend
@@ -9,8 +9,8 @@ from django.http import HttpRequest, HttpResponse
 from django.urls import reverse
 from django.utils.translation import gettext as _
 from rest_framework.exceptions import ValidationError
-from rest_framework.fields import BooleanField, CharField
-from sentry_sdk import start_span
+from rest_framework.fields import CharField
+from sentry_sdk.hub import Hub
 from structlog.stdlib import get_logger
 
 from authentik.core.models import User
@@ -18,10 +18,11 @@ from authentik.core.signals import login_failed
 from authentik.flows.challenge import (
     Challenge,
     ChallengeResponse,
+    ChallengeTypes,
     WithUserInfoChallenge,
 )
 from authentik.flows.exceptions import StageInvalidException
-from authentik.flows.models import Flow, Stage
+from authentik.flows.models import Flow, FlowDesignation, Stage
 from authentik.flows.planner import PLAN_CONTEXT_PENDING_USER
 from authentik.flows.stage import ChallengeStageView
 from authentik.lib.utils.reflection import path_to_class
@@ -35,8 +36,8 @@ SESSION_KEY_INVALID_TRIES = "authentik/stages/password/user_invalid_tries"
 
 
 def authenticate(
-    request: HttpRequest, backends: list[str], stage: Stage | None = None, **credentials: Any
-) -> User | None:
+    request: HttpRequest, backends: list[str], stage: Optional[Stage] = None, **credentials: Any
+) -> Optional[User]:
     """If the given credentials are valid, return a User object.
 
     Customized version of django's authenticate, which accepts a list of backends"""
@@ -47,9 +48,9 @@ def authenticate(
             LOGGER.warning("Failed to import backend", path=backend_path)
             continue
         LOGGER.debug("Attempting authentication...", backend=backend_path)
-        with start_span(
+        with Hub.current.start_span(
             op="authentik.stages.password.authenticate",
-            name=backend_path,
+            description=backend_path,
         ):
             user = backend.authenticate(request, **credentials)
         if user is None:
@@ -76,8 +77,6 @@ class PasswordChallenge(WithUserInfoChallenge):
 
     component = CharField(default="ak-stage-password")
 
-    allow_show_password = BooleanField(default=False)
-
 
 class PasswordChallengeResponse(ChallengeResponse):
     """Password challenge response"""
@@ -99,9 +98,9 @@ class PasswordChallengeResponse(ChallengeResponse):
             "username": pending_user.username,
         }
         try:
-            with start_span(
+            with Hub.current.start_span(
                 op="authentik.stages.password.authenticate",
-                name="User authenticate call",
+                description="User authenticate call",
             ):
                 user = authenticate(
                     self.stage.request,
@@ -138,14 +137,14 @@ class PasswordStageView(ChallengeStageView):
     def get_challenge(self) -> Challenge:
         challenge = PasswordChallenge(
             data={
-                "allow_show_password": self.executor.current_stage.allow_show_password,
+                "type": ChallengeTypes.NATIVE.value,
             }
         )
-        recovery_flow: Flow | None = self.request.brand.flow_recovery
-        if recovery_flow:
+        recovery_flow = Flow.objects.filter(designation=FlowDesignation.RECOVERY)
+        if recovery_flow.exists():
             recover_url = reverse(
                 "authentik_core:if-flow",
-                kwargs={"flow_slug": recovery_flow.slug},
+                kwargs={"flow_slug": recovery_flow.first().slug},
             )
             challenge.initial_data["recovery_url"] = self.request.build_absolute_uri(recover_url)
         return challenge
@@ -161,7 +160,7 @@ class PasswordStageView(ChallengeStageView):
         ):
             self.logger.debug("User has exceeded maximum tries")
             del self.request.session[SESSION_KEY_INVALID_TRIES]
-            return self.executor.stage_invalid(_("Invalid password"))
+            return self.executor.stage_invalid()
         return super().challenge_invalid(response)
 
     def challenge_valid(self, response: PasswordChallengeResponse) -> HttpResponse:

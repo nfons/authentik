@@ -1,14 +1,14 @@
 """Sync LDAP Users and groups into authentik"""
 
-from collections.abc import Generator
-from typing import Any
+from typing import Any, Generator, Optional
 
 from django.db.models import Q
 from ldap3 import SUBTREE
 
 from authentik.core.models import Group, User
-from authentik.sources.ldap.models import LDAP_DISTINGUISHED_NAME, LDAP_UNIQUENESS, LDAPSource
-from authentik.sources.ldap.sync.base import BaseLDAPSynchronizer
+from authentik.sources.ldap.auth import LDAP_DISTINGUISHED_NAME
+from authentik.sources.ldap.models import LDAPSource
+from authentik.sources.ldap.sync.base import LDAP_UNIQUENESS, BaseLDAPSynchronizer
 
 
 class MembershipLDAPSynchronizer(BaseLDAPSynchronizer):
@@ -76,7 +76,7 @@ class MembershipLDAPSynchronizer(BaseLDAPSynchronizer):
         self._logger.debug("Successfully updated group membership")
         return membership_count
 
-    def get_group(self, group_dict: dict[str, Any]) -> Group | None:
+    def get_group(self, group_dict: dict[str, Any]) -> Optional[Group]:
         """Check if we fetched the group already, and if not cache it for later"""
         group_dn = group_dict.get("attributes", {}).get(LDAP_DISTINGUISHED_NAME, [])
         group_uniq = group_dict.get("attributes", {}).get(self._source.object_uniqueness_field, [])
